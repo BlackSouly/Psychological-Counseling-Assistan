@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import shutil
 
 from app.models.client import ClientProfile
 from app.models.session import SessionRecord, SessionSummary
@@ -49,6 +50,12 @@ class JsonStorage:
             raise FileNotFoundError(f"Client not found: {client_code}")
         return ClientProfile.model_validate_json(profile_path.read_text(encoding="utf-8"))
 
+    def delete_client(self, client_code: str) -> None:
+        client_dir = self.root / client_code
+        if not client_dir.exists():
+            raise FileNotFoundError(f"Client not found: {client_code}")
+        shutil.rmtree(client_dir)
+
     def list_session_summaries(self, client_code: str) -> list[SessionSummary]:
         client_dir = self.root / client_code
         if not client_dir.exists():
@@ -65,8 +72,12 @@ class JsonStorage:
                     created_at=session.created_at,
                     source_text=session.source_text,
                     emotion_labels=session.analysis.emotion_labels if session.analysis else [],
+                    intensity=session.analysis.intensity if session.analysis else "",
                     cognitive_patterns=session.analysis.cognitive_patterns if session.analysis else [],
                     risk_level=session.risk_alert.level if session.risk_alert else "none",
+                    has_rebt_worksheet=any(
+                        value.strip() for value in session.rebt_worksheet.model_dump().values()
+                    ),
                 )
             )
         return summaries

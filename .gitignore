@@ -16,3 +16,8 @@ backend/.pytest_cache/
 
 .env
 .env.*
+
+.claude/settings.local.json
+_ _offline_.html
+frontend-current.png
+tmp_*

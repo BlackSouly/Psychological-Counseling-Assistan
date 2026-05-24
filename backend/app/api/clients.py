@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 
 from app.models.client import ClientProfile, CreateClientRequest, UpdateClientStatusRequest
 from app.models.session import SessionSummary
@@ -47,6 +47,15 @@ def update_client_status(
     updated_client = existing_client.model_copy(update={"status": payload.status})
     storage.save_client(updated_client)
     return updated_client
+
+
+@router.delete("/clients/{client_code}", status_code=204)
+def delete_client(client_code: str, storage: StorageDep) -> Response:
+    try:
+        storage.delete_client(client_code)
+    except FileNotFoundError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    return Response(status_code=204)
 
 
 @router.get("/clients/{client_code}/sessions", response_model=list[SessionSummary])

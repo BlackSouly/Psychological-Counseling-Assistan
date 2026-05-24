@@ -32,6 +32,16 @@ class AnnotationFeedback(BaseModel):
     disagreement_colors: dict[str, ColorChoice] = Field(default_factory=dict)
 
 
+class RebtWorksheet(BaseModel):
+    activating_event: str = ""
+    belief: str = ""
+    consequence: str = ""
+    dispute: str = ""
+    effective_belief: str = ""
+    homework: str = ""
+    follow_up: str = ""
+
+
 class SessionRecord(BaseModel):
     session_id: str
     client_code: str
@@ -41,6 +51,7 @@ class SessionRecord(BaseModel):
     risk_alert: RiskAlert | None = None
     interpretation: str = ""
     feedback: AnnotationFeedback = Field(default_factory=AnnotationFeedback)
+    rebt_worksheet: RebtWorksheet = Field(default_factory=RebtWorksheet)
 
     @classmethod
     def build_initial(cls, client_code: str, source_text: str) -> "SessionRecord":
@@ -79,5 +90,7 @@ class SessionSummary(BaseModel):
     created_at: str
     source_text: str
     emotion_labels: list[str] = Field(default_factory=list)
+    intensity: str = ""
     cognitive_patterns: list[str] = Field(default_factory=list)
     risk_level: str = "none"
+    has_rebt_worksheet: bool = False

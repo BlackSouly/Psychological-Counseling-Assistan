@@ -1,3 +1,5 @@
+export type ClientStatus = "待初评" | "跟进中" | "需风险复核" | "已稳定" | "已结案";
+
 export type ClientProfile = {
   client_code: string;
   alias: string;
@@ -8,8 +10,6 @@ export type CreateClientPayload = {
   alias: string;
 };
 
-export type ClientStatus = "待初评" | "跟进中" | "需风险复核" | "已稳定" | "已结案";
-
 export type UpdateClientStatusPayload = {
   status: ClientStatus;
 };
@@ -19,8 +19,10 @@ export type SessionSummary = {
   created_at: string;
   source_text: string;
   emotion_labels: string[];
+  intensity: string;
   cognitive_patterns: string[];
   risk_level: string;
+  has_rebt_worksheet: boolean;
 };
 
 export type StructuredAnalysis = {
@@ -48,6 +50,16 @@ export type AnnotationFeedback = {
   disagreement_colors: Record<string, FeedbackColor>;
 };
 
+export type RebtWorksheet = {
+  activating_event: string;
+  belief: string;
+  consequence: string;
+  dispute: string;
+  effective_belief: string;
+  homework: string;
+  follow_up: string;
+};
+
 export type SessionRecord = {
   session_id: string;
   client_code: string;
@@ -57,4 +69,5 @@ export type SessionRecord = {
   risk_alert: RiskAlert | null;
   interpretation: string;
   feedback: AnnotationFeedback;
+  rebt_worksheet: RebtWorksheet;
 };

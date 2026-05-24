@@ -15,10 +15,13 @@ describe("client status workflow", () => {
 
   it("renders client statuses and lets the user update the active client status", async () => {
     fetchMock.mockResolvedValueOnce(
-      new Response(JSON.stringify([{ client_code: "client_001", alias: "来访者001", status: "待初评" }]), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      }),
+      new Response(
+        JSON.stringify([{ client_code: "client_001", alias: "来访者001", status: "待初评" }]),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
     );
     fetchMock.mockResolvedValueOnce(
       new Response(JSON.stringify([]), {
@@ -27,16 +30,23 @@ describe("client status workflow", () => {
       }),
     );
     fetchMock.mockResolvedValueOnce(
-      new Response(JSON.stringify({ client_code: "client_001", alias: "来访者001", status: "需风险复核" }), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      }),
+      new Response(
+        JSON.stringify({
+          client_code: "client_001",
+          alias: "来访者001",
+          status: "需风险复核",
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
     );
 
     render(<App />);
 
     await waitFor(() => {
-      expect(screen.getByText("来访者001")).toBeInTheDocument();
+      expect(screen.getAllByText("来访者001").length).toBeGreaterThan(0);
     });
 
     expect(screen.getAllByText("待初评").length).toBeGreaterThan(0);

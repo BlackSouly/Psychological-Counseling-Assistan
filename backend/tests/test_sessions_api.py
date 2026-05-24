@@ -122,3 +122,44 @@ def test_feedback_patch_updates_notes_rating_colors_and_disagreements(tmp_path) 
     assert body["feedback"]["notes_color"] == "red"
     assert body["feedback"]["disagreement_colors"]["cognitive_patterns"] == "blue"
     assert body["analysis"] == session["analysis"]
+
+
+def test_worksheet_patch_persists_rebt_workflow_fields(tmp_path) -> None:
+    client = TestClient(
+        create_app(
+            data_dir=tmp_path,
+            analyzer=FakeAnalyzer(),
+            interpreter=FakeInterpreter(),
+            risk_service=FakeRiskScreeningService(),
+        )
+    )
+    client.post(
+        "/api/clients",
+        json={"client_code": "client_001", "alias": "client 001"},
+    )
+
+    session = client.post(
+        "/api/sessions/analyze",
+        json={"client_code": "client_001", "source_text": "I failed again."},
+    ).json()
+
+    worksheet = {
+        "activating_event": "A event",
+        "belief": "B belief",
+        "consequence": "C consequence",
+        "dispute": "D dispute",
+        "effective_belief": "E belief",
+        "homework": "Homework",
+        "follow_up": "Follow up",
+    }
+    response = client.patch(
+        f"/api/sessions/{session['session_id']}/worksheet",
+        json=worksheet,
+    )
+
+    assert response.status_code == 200
+    assert response.json()["rebt_worksheet"] == worksheet
+
+    detail = client.get(f"/api/sessions/{session['session_id']}")
+    assert detail.status_code == 200
+    assert detail.json()["rebt_worksheet"] == worksheet

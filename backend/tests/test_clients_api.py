@@ -138,6 +138,29 @@ def test_create_app_rejects_disallowed_ai_gateway(monkeypatch: pytest.MonkeyPatc
         create_app()
 
 
+def test_delete_client(tmp_path) -> None:
+    client = TestClient(
+        create_app(
+            data_dir=tmp_path,
+            analyzer=FakeAnalyzer(),
+            interpreter=FakeInterpreter(),
+            risk_service=FakeRiskScreeningService(),
+        )
+    )
+
+    create_response = client.post("/api/clients", json={"alias": "Client 001"})
+    assert create_response.status_code == 201
+
+    delete_response = client.delete("/api/clients/client_001")
+
+    assert delete_response.status_code == 204
+    assert delete_response.content == b""
+
+    list_response = client.get("/api/clients")
+    assert list_response.status_code == 200
+    assert list_response.json() == []
+
+
 def test_health_endpoint_reports_provider_configuration(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
     monkeypatch.setenv("ANTHROPIC_BASE_URL", "https://api.deepseek.com/anthropic")
