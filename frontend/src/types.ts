@@ -60,6 +60,16 @@ export type RebtWorksheet = {
   follow_up: string;
 };
 
+export type RebtPlanItem = {
+  title: string;
+  detail: string;
+  source_quote: string;
+};
+
+export type RebtPlan = {
+  items: RebtPlanItem[];
+};
+
 export type SessionRecord = {
   session_id: string;
   client_code: string;
@@ -68,6 +78,7 @@ export type SessionRecord = {
   analysis: StructuredAnalysis | null;
   risk_alert: RiskAlert | null;
   interpretation: string;
+  rebt_plan: RebtPlan;
   feedback: AnnotationFeedback;
   rebt_worksheet: RebtWorksheet;
 };

@@ -42,6 +42,16 @@ class RebtWorksheet(BaseModel):
     follow_up: str = ""
 
 
+class RebtPlanItem(BaseModel):
+    title: str
+    detail: str
+    source_quote: str = ""
+
+
+class RebtPlan(BaseModel):
+    items: list[RebtPlanItem] = Field(default_factory=list)
+
+
 class SessionRecord(BaseModel):
     session_id: str
     client_code: str
@@ -50,6 +60,7 @@ class SessionRecord(BaseModel):
     analysis: StructuredAnalysis | None = None
     risk_alert: RiskAlert | None = None
     interpretation: str = ""
+    rebt_plan: RebtPlan = Field(default_factory=RebtPlan)
     feedback: AnnotationFeedback = Field(default_factory=AnnotationFeedback)
     rebt_worksheet: RebtWorksheet = Field(default_factory=RebtWorksheet)
 
@@ -71,11 +82,13 @@ class SessionRecord(BaseModel):
         source_text: str,
         analysis: StructuredAnalysis,
         interpretation: str,
+        rebt_plan: RebtPlan | None = None,
         risk_alert: RiskAlert | None = None,
     ) -> "SessionRecord":
         session = cls.build_initial(client_code=client_code, source_text=source_text)
         session.analysis = analysis
         session.interpretation = interpretation
+        session.rebt_plan = rebt_plan or RebtPlan()
         session.risk_alert = risk_alert
         return session
 

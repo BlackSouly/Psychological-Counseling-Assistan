@@ -22,7 +22,7 @@ function localizeValue(value: string | undefined): string {
 function localizeRiskLevel(level: string): string {
   switch (level) {
     case "urgent":
-      return "需复核";
+      return "需立即复核";
     case "review":
       return "需复核";
     case "none":
@@ -33,7 +33,7 @@ function localizeRiskLevel(level: string): string {
 }
 
 function riskPillClass(level: string): string {
-  if (level === "urgent" || level === "review" || level === "需复核") {
+  if (level === "urgent" || level === "review" || level === "需复核" || level === "需立即复核") {
     return "risk";
   }
   return "muted";
@@ -52,12 +52,14 @@ function excerpt(text: string): string {
 }
 
 export function TimelinePanel({ sessions, onSelectSession }: TimelinePanelProps) {
-  const sessionsWithRisk = sessions.filter((s) => s.risk_level !== "none").length;
-  const sessionsWithWorksheet = sessions.filter((s) => s.has_rebt_worksheet).length;
+  const sessionsWithRisk = sessions.filter((session) => session.risk_level !== "none").length;
+  const sessionsWithWorksheet = sessions.filter((session) => session.has_rebt_worksheet).length;
 
   return (
     <div className="fade-in">
-      <div className="fb-eyebrow" style={{ marginBottom: 10 }}>TIMELINE</div>
+      <div className="fb-eyebrow" style={{ marginBottom: 10 }}>
+        TIMELINE
+      </div>
 
       <div className="tl-stat">
         <div className="cell">
@@ -75,7 +77,7 @@ export function TimelinePanel({ sessions, onSelectSession }: TimelinePanelProps)
       </div>
 
       {sessions.length === 0 ? (
-        <p className="muted" style={{ fontSize: 13, textAlign: "center", padding: "16px 0" }}>
+        <p className="muted" style={{ fontSize: 13, padding: "16px 0", textAlign: "center" }}>
           还没有保存的会谈记录。
         </p>
       ) : (
@@ -88,7 +90,9 @@ export function TimelinePanel({ sessions, onSelectSession }: TimelinePanelProps)
                 role="button"
                 tabIndex={0}
                 onKeyDown={(event) => {
-                  if (event.key === "Enter") onSelectSession(session.session_id);
+                  if (event.key === "Enter") {
+                    onSelectSession(session.session_id);
+                  }
                 }}
               >
                 <div className="tl-meta">
@@ -103,10 +107,14 @@ export function TimelinePanel({ sessions, onSelectSession }: TimelinePanelProps)
                     <span className="tag risk">强度：{localizeValue(session.intensity)}</span>
                   ) : null}
                   {session.emotion_labels.slice(0, 1).map((label) => (
-                    <span key={label} className="tag warn">{label}</span>
+                    <span key={label} className="tag warn">
+                      {label}
+                    </span>
                   ))}
                   {session.cognitive_patterns.slice(0, 1).map((pattern) => (
-                    <span key={pattern} className="tag accent">{pattern}</span>
+                    <span key={pattern} className="tag accent">
+                      {pattern}
+                    </span>
                   ))}
                   <span className={session.has_rebt_worksheet ? "tag good" : "tag muted"}>
                     {session.has_rebt_worksheet ? "已填工作纸" : "未填工作纸"}

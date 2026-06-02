@@ -22,7 +22,7 @@ function createSessionRecord(overrides: Partial<SessionRecord> = {}): SessionRec
     session_id: "session_001",
     client_code: "client_101",
     created_at: "2026-05-08T10:00:00Z",
-    source_text: "我今天又搞砸了，反正也没人会在乎。",
+    source_text: "我今天又搞砸了，反正也没人在乎。",
     analysis: {
       emotion_labels: ["羞耻", "沮丧"],
       intensity: "high",
@@ -37,6 +37,7 @@ function createSessionRecord(overrides: Partial<SessionRecord> = {}): SessionRec
       summary: "需要进一步风险复核。",
     },
     interpretation: "一、核心观察\n来访者出现明显自我贬低。\n二、干预建议\n优先稳定情绪后再进入信念挑战。",
+    rebt_plan: { items: [] },
     feedback: {
       notes: "",
       notes_color: "black",
@@ -52,7 +53,7 @@ function createSessionRecord(overrides: Partial<SessionRecord> = {}): SessionRec
 const sessionSummary: SessionSummary = {
   session_id: "session_001",
   created_at: "2026-05-08T10:00:00Z",
-  source_text: "我今天又搞砸了，反正也没人会在乎。",
+  source_text: "我今天又搞砸了，反正也没人在乎。",
   emotion_labels: ["羞耻"],
   intensity: "high",
   cognitive_patterns: ["过度概括"],
@@ -109,7 +110,7 @@ describe("workbench regression coverage", () => {
       ),
     );
 
-    await userEvent.clear(screen.getByDisplayValue(/围绕来访者表述/));
+    await userEvent.clear(screen.getByLabelText("A 触发事件"));
     await userEvent.type(screen.getByLabelText("A 触发事件"), savedWorksheet.activating_event);
     await userEvent.clear(screen.getByLabelText("B 信念/解释"));
     await userEvent.type(screen.getByLabelText("B 信念/解释"), savedWorksheet.belief);
@@ -127,8 +128,10 @@ describe("workbench regression coverage", () => {
     await userEvent.click(screen.getByRole("button", { name: "保存工作纸" }));
 
     await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledWith(
-        "/api/sessions/session_001/worksheet",
+      const calls = fetchMock.mock.calls;
+      const lastCall = calls[calls.length - 1];
+      expect(lastCall?.[0]).toBe("/api/sessions/session_001/worksheet");
+      expect(lastCall?.[1]).toEqual(
         expect.objectContaining({
           method: "PATCH",
           body: JSON.stringify(savedWorksheet),
@@ -136,7 +139,7 @@ describe("workbench regression coverage", () => {
       );
     });
 
-    expect(screen.getByText("REBT 工作纸已保存。")).toBeInTheDocument();
+    expect(screen.getByText("REBT 工作纸已保存到当前会谈记录。")).toBeInTheDocument();
   });
 
   it("keeps the breadcrumb aligned with the case overview tab", async () => {
@@ -148,5 +151,41 @@ describe("workbench regression coverage", () => {
     expect(crumbs).not.toBeNull();
     expect(within(crumbs as HTMLElement).getByText("个案概览")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /个案概览/ })).toHaveClass("is-on");
+  });
+
+  it("regenerates a missing REBT plan for a legacy session", async () => {
+    await renderWithLatestSession();
+
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(
+        createSessionRecord({
+          interpretation: "一、核心观察\n这是新的结构化解读。",
+          rebt_plan: {
+            items: [
+              {
+                title: "澄清失控预期",
+                detail: "围绕原句追问证据与可控部分。",
+                source_quote: "事情会失控",
+              },
+            ],
+          },
+        }),
+      ),
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: "重新生成" }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/sessions/session_001/rebt-plan",
+        expect.objectContaining({
+          method: "POST",
+        }),
+      );
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("澄清失控预期")).toBeInTheDocument();
+    });
   });
 });

@@ -49,6 +49,7 @@ describe("client switch workflow", () => {
           },
           risk_alert: null,
           interpretation: "一、核心观察\n这是第一位来访者的结果。",
+          rebt_plan: { items: [] },
           feedback: {
             notes: "",
             notes_color: "black",

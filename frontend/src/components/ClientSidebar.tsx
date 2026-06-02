@@ -104,9 +104,7 @@ export function ClientSidebar({
                 <span>{client.client_code}</span>
               </div>
               <div className="client-status">
-                <span className={`pill ${statusPillClass(client.status)}`}>
-                  {client.status}
-                </span>
+                <span className={`pill ${statusPillClass(client.status)}`}>{client.status}</span>
               </div>
             </button>
           );

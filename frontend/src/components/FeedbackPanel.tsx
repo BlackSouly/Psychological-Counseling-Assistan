@@ -117,9 +117,7 @@ export function FeedbackPanel({ feedback, isSaving, onSave }: FeedbackPanelProps
           {COLOR_OPTIONS.map((option) => (
             <button
               key={option.value}
-              className={
-                cognitiveDisagreementColor === option.value ? "fb-pill is-on" : "fb-pill"
-              }
+              className={cognitiveDisagreementColor === option.value ? "fb-pill is-on" : "fb-pill"}
               disabled={isSaving}
               onClick={() => setCognitiveDisagreementColor(option.value)}
               style={option.value !== "black" ? { color: COLOR_STYLE_MAP[option.value] } : undefined}

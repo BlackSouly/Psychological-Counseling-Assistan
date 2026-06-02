@@ -1,7 +1,9 @@
 from fastapi.testclient import TestClient
 
 from app.main import create_app
-from app.models.session import RiskAlert, StructuredAnalysis
+from app.models.session import RebtPlan, RebtPlanItem, RiskAlert, SessionRecord, StructuredAnalysis
+from app.services.interpretation import RebtInterpretationResult
+from app.services.storage import JsonStorage
 
 
 class FakeAnalyzer:
@@ -17,8 +19,24 @@ class FakeAnalyzer:
 
 
 class FakeInterpreter:
-    def interpret(self, text: str, analysis: StructuredAnalysis) -> str:
-        return "一、核心观察\n这是结构化详细版解读。"
+    def interpret(self, text: str, analysis: StructuredAnalysis) -> RebtInterpretationResult:
+        return RebtInterpretationResult(
+            interpretation="一、核心观察\n这是结构化详细版解读。",
+            rebt_plan=RebtPlan(
+                items=[
+                    RebtPlanItem(
+                        title="澄清失控预期",
+                        detail="围绕“事情会失控”追问具体证据、可控部分与最小下一步。",
+                        source_quote="事情会失控",
+                    )
+                ]
+            ),
+        )
+
+
+class InvalidInterpreter:
+    def interpret(self, text: str, analysis: StructuredAnalysis) -> RebtInterpretationResult:
+        raise RuntimeError("Interpretation response did not match the expected JSON schema.")
 
 
 class FakeRiskScreeningService:
@@ -58,6 +76,7 @@ def test_analyze_text_returns_structured_result_and_interpretation(tmp_path) -> 
     assert body["analysis"]["emotion_labels"]
     assert body["analysis"]["confidence"] >= 0
     assert body["interpretation"]
+    assert body["rebt_plan"]["items"][0]["source_quote"] == "事情会失控"
 
 
 def test_analysis_response_contains_distinct_risk_alert_channel(tmp_path) -> None:
@@ -103,7 +122,7 @@ def test_feedback_patch_updates_notes_rating_colors_and_disagreements(tmp_path) 
 
     session = client.post(
         "/api/sessions/analyze",
-        json={"client_code": "client_001", "source_text": "我最近非常烦躁。"},
+        json={"client_code": "client_001", "source_text": "我最近非常焦躁。"},
     ).json()
 
     response = client.patch(
@@ -163,3 +182,58 @@ def test_worksheet_patch_persists_rebt_workflow_fields(tmp_path) -> None:
     detail = client.get(f"/api/sessions/{session['session_id']}")
     assert detail.status_code == 200
     assert detail.json()["rebt_worksheet"] == worksheet
+
+
+def test_analyze_text_returns_503_when_interpretation_schema_is_invalid(tmp_path) -> None:
+    client = TestClient(
+        create_app(
+            data_dir=tmp_path,
+            analyzer=FakeAnalyzer(),
+            interpreter=InvalidInterpreter(),
+            risk_service=FakeRiskScreeningService(),
+        )
+    )
+    client.post(
+        "/api/clients",
+        json={"client_code": "client_001", "alias": "client 001"},
+    )
+
+    response = client.post(
+        "/api/sessions/analyze",
+        json={"client_code": "client_001", "source_text": "I failed again."},
+    )
+
+    assert response.status_code == 503
+    assert "REBT" in response.json()["detail"]
+
+
+def test_regenerate_rebt_plan_updates_legacy_session(tmp_path) -> None:
+    client = TestClient(
+        create_app(
+            data_dir=tmp_path,
+            analyzer=FakeAnalyzer(),
+            interpreter=FakeInterpreter(),
+            risk_service=FakeRiskScreeningService(),
+        )
+    )
+    client.post(
+        "/api/clients",
+        json={"client_code": "client_001", "alias": "client 001"},
+    )
+
+    legacy_session = SessionRecord.create_completed(
+        client_code="client_001",
+        source_text="I failed again.",
+        analysis=FakeAnalyzer().analyze("I failed again."),
+        interpretation="legacy interpretation",
+        rebt_plan=RebtPlan(items=[]),
+        risk_alert=FakeRiskScreeningService().screen("I failed again."),
+    )
+    JsonStorage(tmp_path).save_session(legacy_session)
+
+    response = client.post(f"/api/sessions/{legacy_session.session_id}/rebt-plan")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["interpretation"] == "一、核心观察\n这是结构化详细版解读。"
+    assert body["rebt_plan"]["items"][0]["source_quote"] == "事情会失控"

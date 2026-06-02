@@ -22,7 +22,7 @@ function localizeValue(value: string | undefined): string {
 function localizeRiskLevel(level: string): string {
   switch (level) {
     case "urgent":
-      return "需复核";
+      return "需立即复核";
     case "review":
       return "需复核";
     case "none":
@@ -113,17 +113,29 @@ export function CaseOverviewPanel({ client, sessions }: CaseOverviewPanelProps) 
           <div className="overview-chip-group">
             <strong>情绪标签</strong>
             <div className="tag-list">
-              {topEmotions.length > 0 ? topEmotions.map((item) => (
-                <span key={item.label} className="tag warn">{item.label} · {item.count}</span>
-              )) : <span className="muted">暂无情绪标签</span>}
+              {topEmotions.length > 0 ? (
+                topEmotions.map((item) => (
+                  <span key={item.label} className="tag warn">
+                    {item.label} · {item.count}
+                  </span>
+                ))
+              ) : (
+                <span className="muted">暂无情绪标签</span>
+              )}
             </div>
           </div>
           <div className="overview-chip-group">
             <strong>认知模式</strong>
             <div className="tag-list">
-              {topCognitions.length > 0 ? topCognitions.map((item) => (
-                <span key={item.label} className="tag accent">{item.label} · {item.count}</span>
-              )) : <span className="muted">暂无认知模式</span>}
+              {topCognitions.length > 0 ? (
+                topCognitions.map((item) => (
+                  <span key={item.label} className="tag accent">
+                    {item.label} · {item.count}
+                  </span>
+                ))
+              ) : (
+                <span className="muted">暂无认知模式</span>
+              )}
             </div>
           </div>
         </div>

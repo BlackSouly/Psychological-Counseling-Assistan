@@ -7,6 +7,7 @@ import {
   fetchClients,
   fetchClientSessions,
   fetchSession,
+  regenerateSessionRebtPlan,
   updateClientStatus,
   updateSessionFeedback,
   updateSessionWorksheet,
@@ -15,8 +16,9 @@ import { AnalysisResultPanel } from "./components/AnalysisResultPanel";
 import { CaseOverviewPanel } from "./components/CaseOverviewPanel";
 import { ClientSidebar } from "./components/ClientSidebar";
 import { FeedbackPanel } from "./components/FeedbackPanel";
-import { TextAnalysisForm } from "./components/TextAnalysisForm";
+import { SessionTextPanel } from "./components/SessionText/SessionTextPanel";
 import { TimelinePanel } from "./components/TimelinePanel";
+import type { PinnedQuote } from "./components/SessionText/sessionText.types";
 import type {
   ClientProfile,
   ClientStatus,
@@ -31,7 +33,7 @@ type InspectorTab = "feedback" | "timeline" | "supervise" | "plan";
 
 const WORKBENCH_TAB_LABELS: Record<WorkbenchTab, string> = {
   input: "会谈文本",
-  analysis: "会谈分析",
+  analysis: "分析结果",
   feedback: "批注与评分",
   overview: "个案概览",
 };
@@ -46,31 +48,31 @@ const CLIENT_STATUSES: ClientStatus[] = [
 
 const SUPERVISION_ITEMS = [
   {
-    period: "本周 \u00b7 2026 W19",
-    body: "布置睡眠日记 + 三栏思维记录，识别\u201c反正...\u201d句式的触发情境。",
+    period: "本周 · 2026 W19",
+    body: "继续记录睡眠和躯体反应，重点区分情绪强度升高时的诱发事件、自动想法与应对动作。",
   },
   {
-    period: "下周 \u00b7 2026 W20",
-    body: "行为实验：尝试主动邀请 1 位朋友进行一次 30 分钟交流，并记录预期 vs 实际感受。",
+    period: "下周 · 2026 W20",
+    body: "安排一次行为实验，验证来访者对被拒绝、被忽视或被否定的预期与现实差异。",
   },
   {
     period: "长期",
-    body: "围绕\u201c我必须做好所有事\u201d展开苏格拉底式提问，松动绝对化标签。",
+    body: "围绕“我必须把一切都做好”继续做苏格拉底式提问，逐步松动绝对化和自我评价绑定。",
   },
 ];
 
 const PLAN_ITEMS = [
   {
-    period: "本周 \u00b7 2026 W19",
-    body: "布置睡眠日记 + 三栏思维记录，识别\u201c反正...\u201d句式的触发情境。",
+    period: "本周 · 2026 W19",
+    body: "完成一次会谈文本分析，并将核心证据句同步到 REBT 工作纸中，便于后续追踪。",
   },
   {
-    period: "下周 \u00b7 2026 W20",
-    body: "行为实验：尝试主动邀请 1 位朋友进行一次 30 分钟交流，并记录预期 vs 实际感受。",
+    period: "下周 · 2026 W20",
+    body: "复盘新信念是否降低情绪强度，并记录哪些场景最容易诱发旧有认知模式。",
   },
   {
     period: "长期",
-    body: "围绕\u201c我必须做好所有事\u201d展开苏格拉底式提问，松动绝对化标签。",
+    body: "持续积累结构化案例，观察高频情绪标签、认知模式与风险复核之间的对应关系。",
   },
 ];
 
@@ -82,16 +84,22 @@ export default function App() {
   const [isLoadingClients, setIsLoadingClients] = useState(true);
   const [isCreatingClient, setIsCreatingClient] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [isRegeneratingRebtPlan, setIsRegeneratingRebtPlan] = useState(false);
   const [isSavingFeedback, setIsSavingFeedback] = useState(false);
   const [isSavingWorksheet, setIsSavingWorksheet] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [rebtPlanStatusMessage, setRebtPlanStatusMessage] = useState<string | null>(null);
+  const [rebtPlanErrorMessage, setRebtPlanErrorMessage] = useState<string | null>(null);
+  const [worksheetStatusMessage, setWorksheetStatusMessage] = useState<string | null>(null);
+  const [worksheetErrorMessage, setWorksheetErrorMessage] = useState<string | null>(null);
   const [workbenchTab, setWorkbenchTab] = useState<WorkbenchTab>("input");
   const [inspectorTab, setInspectorTab] = useState<InspectorTab>("feedback");
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const [clientSearchDraft, setClientSearchDraft] = useState("");
   const [clientSearchQuery, setClientSearchQuery] = useState("");
   const [clientSearchResetSignal, setClientSearchResetSignal] = useState(0);
+  const [sessionPinnedQuotes, setSessionPinnedQuotes] = useState<PinnedQuote[]>([]);
   const topSearchInputRef = useRef<HTMLInputElement>(null);
 
   const activeClient = clients.find((client) => client.client_code === activeClientCode) ?? null;
@@ -117,6 +125,7 @@ export default function App() {
       return searchableText.includes(query);
     });
   }, [clients, clientSearchQuery]);
+
   const hasActiveClientSearch = clientSearchQuery.trim().length > 0;
 
   function submitClientSearch() {
@@ -129,6 +138,13 @@ export default function App() {
     setClientSearchQuery("");
     setClientSearchResetSignal((signal) => signal + 1);
     topSearchInputRef.current?.focus();
+  }
+
+  function clearAnalysisMessages() {
+    setRebtPlanStatusMessage(null);
+    setRebtPlanErrorMessage(null);
+    setWorksheetStatusMessage(null);
+    setWorksheetErrorMessage(null);
   }
 
   useEffect(() => {
@@ -152,12 +168,14 @@ export default function App() {
       setResult(null);
       setSessions([]);
       setWorkbenchTab("input");
+      clearAnalysisMessages();
       return;
     }
 
     let isCurrentClient = true;
     setResult(null);
     setWorkbenchTab("input");
+    clearAnalysisMessages();
 
     void (async () => {
       const nextSessions = await loadSessions(activeClientCode);
@@ -219,7 +237,7 @@ export default function App() {
       const createdClient = await createClient(payload);
       await loadClients();
       setActiveClientCode(createdClient.client_code);
-      setStatusMessage(`已创建来访者"${createdClient.alias}"。`);
+      setStatusMessage(`已创建来访者“${createdClient.alias}”。`);
     } catch (error) {
       setStatusMessage(null);
       setErrorMessage(error instanceof Error ? error.message : "创建来访者失败。");
@@ -237,13 +255,14 @@ export default function App() {
       setIsAnalyzing(true);
       setErrorMessage(null);
       setStatusMessage(null);
+      clearAnalysisMessages();
 
       const nextResult = await analyzeSession(activeClientCode, sourceText);
       setResult(nextResult);
       setWorkbenchTab("analysis");
       setInspectorTab("feedback");
       await loadSessions(activeClientCode);
-      setStatusMessage("分析已完成，已生成结构化结果。");
+      setStatusMessage("分析已完成，结构化结果已更新。");
     } catch (error) {
       setStatusMessage(null);
       setErrorMessage(error instanceof Error ? error.message : "分析文本失败。");
@@ -267,7 +286,7 @@ export default function App() {
           client.client_code === updatedClient.client_code ? updatedClient : client,
         ),
       );
-      setStatusMessage(`已更新来访者"${updatedClient.alias}"的处理状态。`);
+      setStatusMessage(`已更新来访者“${updatedClient.alias}”的处理状态。`);
     } catch (error) {
       setStatusMessage(null);
       setErrorMessage(error instanceof Error ? error.message : "更新来访者处理状态失败。");
@@ -280,7 +299,7 @@ export default function App() {
     }
 
     const confirmed = window.confirm(
-      `确定删除来访者"${activeClient.alias}"及其全部本地记录吗？此操作不可撤销。`,
+      `确定删除来访者“${activeClient.alias}”及其全部本地记录吗？此操作不可撤销。`,
     );
     if (!confirmed) {
       return;
@@ -304,10 +323,11 @@ export default function App() {
         current?.client_code === deletedClient.client_code ? null : current,
       );
       setWorkbenchTab("input");
+      clearAnalysisMessages();
       if (!nextActiveClientCode) {
         setSessions([]);
       }
-      setStatusMessage(`已删除来访者"${deletedClient.alias}"。`);
+      setStatusMessage(`已删除来访者“${deletedClient.alias}”。`);
     } catch (error) {
       setStatusMessage(null);
       setErrorMessage(error instanceof Error ? error.message : "删除来访者失败。");
@@ -317,6 +337,7 @@ export default function App() {
   async function handleSelectSession(sessionId: string) {
     try {
       setErrorMessage(null);
+      clearAnalysisMessages();
       const session = await fetchSession(sessionId);
       setResult(session);
       setWorkbenchTab("analysis");
@@ -345,16 +366,37 @@ export default function App() {
   async function handleSaveWorksheet(sessionId: string, worksheet: RebtWorksheet) {
     try {
       setIsSavingWorksheet(true);
-      setErrorMessage(null);
-      setStatusMessage(null);
+      setWorksheetStatusMessage(null);
+      setWorksheetErrorMessage(null);
       const updated = await updateSessionWorksheet(sessionId, worksheet);
       setResult(updated);
-      setStatusMessage("REBT 工作纸已保存。");
+      setWorksheetStatusMessage("REBT 工作纸已保存到当前会谈记录。");
     } catch (error) {
-      setStatusMessage(null);
-      setErrorMessage(error instanceof Error ? error.message : "保存 REBT 工作纸失败。");
+      setWorksheetStatusMessage(null);
+      setWorksheetErrorMessage(
+        error instanceof Error ? error.message : "保存 REBT 工作纸失败，请检查当前内容后重试。",
+      );
     } finally {
       setIsSavingWorksheet(false);
+    }
+  }
+
+  async function handleRegenerateRebtPlan(sessionId: string) {
+    try {
+      setIsRegeneratingRebtPlan(true);
+      setRebtPlanStatusMessage(null);
+      setRebtPlanErrorMessage(null);
+      const updated = await regenerateSessionRebtPlan(sessionId);
+      setResult(updated);
+      setRebtPlanStatusMessage("已补生成当前记录的 REBT 干预建议。");
+      await loadSessions(updated.client_code);
+    } catch (error) {
+      setRebtPlanStatusMessage(null);
+      setRebtPlanErrorMessage(
+        error instanceof Error ? error.message : "补生成 REBT 干预建议失败，请稍后重试。",
+      );
+    } finally {
+      setIsRegeneratingRebtPlan(false);
     }
   }
 
@@ -362,15 +404,16 @@ export default function App() {
     if (workbenchTab === "input") {
       return (
         <>
-          <TextAnalysisForm
+          <SessionTextPanel
             clientCode={activeClientCode}
             isAnalyzing={isAnalyzing}
             onAnalyze={handleAnalyze}
+            onPinnedQuotesChange={setSessionPinnedQuotes}
           />
           <div className="disclaim">
             <span className="dot">!</span>
             <span>
-              AI 输出仅供参考，不能替代专业判断。涉及风险信号时请遵循机构安全协议进行复核与转介。
+              AI 输出仅供参考，不能替代专业判断。涉及风险信号时，请遵循机构安全流程进行复核与转介。
             </span>
           </div>
         </>
@@ -382,7 +425,7 @@ export default function App() {
         return (
           <div className="empty-state">
             <h3>暂无专业反馈对象</h3>
-            <p>请先选择一条历史记录，或先完成一次新的分析。</p>
+            <p>先选择一条历史记录，或先完成一次新的分析。</p>
           </div>
         );
       }
@@ -406,12 +449,19 @@ export default function App() {
 
     return (
       <AnalysisResultPanel
+        isRegeneratingRebtPlan={isRegeneratingRebtPlan}
         isSavingFeedback={isSavingFeedback}
         isSavingWorksheet={isSavingWorksheet}
+        onRegenerateRebtPlan={handleRegenerateRebtPlan}
         onSaveFeedback={handleSaveFeedback}
         onSaveWorksheet={handleSaveWorksheet}
+        pinnedQuotes={sessionPinnedQuotes}
+        rebtPlanErrorMessage={rebtPlanErrorMessage}
+        rebtPlanStatusMessage={rebtPlanStatusMessage}
         result={result}
         showFeedback={false}
+        worksheetErrorMessage={worksheetErrorMessage}
+        worksheetStatusMessage={worksheetStatusMessage}
       />
     );
   }
@@ -422,7 +472,6 @@ export default function App() {
 
   return (
     <div className="app" data-theme={theme}>
-      {/* ——— TopBar ——— */}
       <header className="topbar">
         <div className="brand">
           <div className="brand-mark">心</div>
@@ -474,6 +523,7 @@ export default function App() {
               搜索
             </button>
           </form>
+
           <button
             aria-label={theme === "dark" ? "切换为日间模式" : "切换为夜间模式"}
             aria-pressed={theme === "dark"}
@@ -489,9 +539,7 @@ export default function App() {
         </div>
       </header>
 
-      {/* ——— Panes ——— */}
       <div className="panes">
-        {/* ClientsPane (left) */}
         <div className="pane">
           <ClientSidebar
             activeClientCode={activeClientCode}
@@ -508,7 +556,6 @@ export default function App() {
           />
         </div>
 
-        {/* Workbench (center) */}
         <div className="workbench">
           <div className="wb-head">
             <div className="pane-eyebrow">WORKBENCH</div>
@@ -562,9 +609,7 @@ export default function App() {
                 <div className="row gap-sm">
                   <div className="banner-av">{clientIndexSuffix}</div>
                   <div className="banner-info">
-                    <div className="banner-name">
-                      编号档案 · {clientIndexSuffix}
-                    </div>
+                    <div className="banner-name">编号档案 · {clientIndexSuffix}</div>
                     <div className="banner-meta">
                       {activeClient.client_code} · {sessions.length} 次会谈 · 状态：{activeClient.status}
                     </div>
@@ -578,7 +623,9 @@ export default function App() {
                   <select
                     aria-label="处理状态"
                     value={activeClient.status}
-                    onChange={(event) => void handleUpdateClientStatus(event.target.value as ClientStatus)}
+                    onChange={(event) =>
+                      void handleUpdateClientStatus(event.target.value as ClientStatus)
+                    }
                   >
                     {CLIENT_STATUSES.map((status) => (
                       <option key={status} value={status}>
@@ -594,15 +641,22 @@ export default function App() {
               </div>
             ) : null}
 
-            {isLoadingClients ? <div className="progress fade-in"><span /></div> : null}
-            {statusMessage ? <p className="status-banner fade-in" role="status">{statusMessage}</p> : null}
+            {isLoadingClients ? (
+              <div className="progress fade-in">
+                <span />
+              </div>
+            ) : null}
+            {statusMessage ? (
+              <p className="status-banner fade-in" role="status">
+                {statusMessage}
+              </p>
+            ) : null}
             {errorMessage ? <p className="error-banner fade-in">{errorMessage}</p> : null}
 
             {renderWorkbenchBody()}
           </div>
         </div>
 
-        {/* RightPane */}
         <aside className="right-pane">
           <div className="pane-head">
             <div className="pane-eyebrow">INSPECTOR</div>
@@ -655,7 +709,7 @@ export default function App() {
               ) : (
                 <div className="empty-state">
                   <h3>暂无专业反馈对象</h3>
-                  <p>请先选择一条历史记录，或先完成一次新的分析。</p>
+                  <p>先选择一条历史记录，或先完成一次新的分析。</p>
                 </div>
               )
             ) : inspectorTab === "timeline" ? (
@@ -667,7 +721,7 @@ export default function App() {
                     <div className="tl-meta">
                       <span>{item.period}</span>
                     </div>
-                    <p className="tl-snippet" style={{ whiteSpace: "normal", overflow: "visible" }}>
+                    <p className="tl-snippet" style={{ overflow: "visible", whiteSpace: "normal" }}>
                       {item.body}
                     </p>
                   </article>
@@ -680,7 +734,7 @@ export default function App() {
                     <div className="tl-meta">
                       <span>{item.period}</span>
                     </div>
-                    <p className="tl-snippet" style={{ whiteSpace: "normal", overflow: "visible" }}>
+                    <p className="tl-snippet" style={{ overflow: "visible", whiteSpace: "normal" }}>
                       {item.body}
                     </p>
                   </article>
@@ -691,7 +745,6 @@ export default function App() {
         </aside>
       </div>
 
-      {/* ——— StatusBar ——— */}
       <footer className="statusbar">
         <div className="grow">
           <span className="dot" />
@@ -699,11 +752,11 @@ export default function App() {
           <span>&middot;</span>
           <span>已加密</span>
           <span>&middot;</span>
-          <span>模型 &middot; clinical-7b</span>
+          <span>模型 · clinical-7b</span>
           <span>&middot;</span>
           <span>仅辅助参考</span>
         </div>
-        <div>v1.4.0 &middot; build 2026.05.08</div>
+        <div>v1.4.0 · build 2026.05.08</div>
       </footer>
     </div>
   );

@@ -2,14 +2,25 @@ import { useEffect, useState } from "react";
 
 import type { SessionRecord } from "../types";
 import { FeedbackPanel } from "./FeedbackPanel";
+import type { PinnedQuote } from "./SessionText/sessionText.types";
 
 type AnalysisResultPanelProps = {
+  isRegeneratingRebtPlan: boolean;
   isSavingFeedback: boolean;
   isSavingWorksheet: boolean;
+  rebtPlanErrorMessage?: string | null;
+  rebtPlanStatusMessage?: string | null;
   showFeedback?: boolean;
   result: SessionRecord | null;
+  pinnedQuotes?: PinnedQuote[];
+  worksheetErrorMessage?: string | null;
+  worksheetStatusMessage?: string | null;
+  onRegenerateRebtPlan: (sessionId: string) => Promise<void>;
   onSaveFeedback: (sessionId: string, feedback: SessionRecord["feedback"]) => Promise<void>;
-  onSaveWorksheet: (sessionId: string, worksheet: SessionRecord["rebt_worksheet"]) => Promise<void>;
+  onSaveWorksheet: (
+    sessionId: string,
+    worksheet: SessionRecord["rebt_worksheet"],
+  ) => Promise<void>;
 };
 
 const TEXT_MAP: Record<string, string> = {
@@ -57,7 +68,7 @@ function localizeList(values: string[] | undefined): string[] {
 function localizeRiskLevel(level: string | undefined): string {
   switch (level) {
     case "urgent":
-      return "需复核";
+      return "需立即复核";
     case "review":
       return "需复核";
     case "none":
@@ -106,29 +117,11 @@ function riskPercent(level: string | undefined): number | null {
     case "需复核":
       return 70;
     case "urgent":
-    case "紧急":
+    case "需立即复核":
       return 100;
     default:
       return null;
   }
-}
-
-function MetricBar({ value, label }: { value: number | null; label: string }) {
-  if (value === null) {
-    return <div className="metric-note">类别字段，不作程度估计</div>;
-  }
-
-  const percent = clampPercent(value);
-
-  return (
-    <div
-      className="metric-bar"
-      aria-label={`${label}：${Math.round(percent)}%`}
-      role="img"
-    >
-      <span style={{ width: `${percent}%` }} />
-    </div>
-  );
 }
 
 function formatList(values: string[]): string {
@@ -138,32 +131,32 @@ function formatList(values: string[]): string {
 function buildSessionSummary(result: SessionRecord): string[] {
   const analysis = result.analysis;
   if (!analysis) {
-    return ["当前记录尚无结构化分析结果。"];
+    return ["当前记录暂无结构化分析结果。"];
   }
 
   const emotions = localizeList(analysis.emotion_labels);
   const cognition = localizeList(analysis.cognitive_patterns);
-  const riskLevel = localizeRiskLevel(analysis.risk_level);
   const confidenceText = Number.isFinite(analysis.confidence)
     ? `${Math.round(analysis.confidence * 100)}%`
     : "未提供";
 
   return [
-    `主要情绪：${formatList(emotions)}；强度为${localizeValue(analysis.intensity) || "未知"}。`,
+    `主要情绪：${formatList(emotions)}；强度为 ${localizeValue(analysis.intensity) || "未知"}。`,
     `主要认知模式：${formatList(cognition)}。`,
     `情绪指向：${localizeValue(analysis.emotion_target) || "未知"}；模型置信度：${confidenceText}。`,
-    `风险级别：${riskLevel || "未知"}。`,
+    `风险级别：${localizeRiskLevel(result.risk_alert?.level ?? analysis.risk_level) || "未知"}。`,
   ];
 }
 
 function buildRiskReviewSuggestions(result: SessionRecord): string[] {
   const riskLevel = result.risk_alert?.level ?? result.analysis?.risk_level ?? "none";
   const riskSignals = result.risk_alert?.signals ?? [];
-  const hasClinicalRisk = riskLevel === "urgent" || riskLevel === "review" || riskLevel === "需复核";
+  const hasClinicalRisk =
+    riskLevel === "urgent" || riskLevel === "review" || riskLevel === "需复核";
 
   if (!hasClinicalRisk) {
     return [
-      "继续记录后续会谈中的情绪强度、睡眠/食欲变化和社会支持变化。",
+      "继续记录后续会谈中的情绪强度、睡眠、食欲和社会支持变化。",
       "若后续文本出现放弃、绝望、自伤或伤人相关表达，再启动风险复核流程。",
       "将 AI 结果作为辅助线索，仍以专业访谈和机构流程为准。",
     ];
@@ -178,38 +171,57 @@ function buildRiskReviewSuggestions(result: SessionRecord): string[] {
   ].filter((item): item is string => Boolean(item));
 }
 
-function buildRebtInterventionSuggestions(result: SessionRecord): string[] {
-  const analysis = result.analysis;
-  if (!analysis) {
-    return ["当前记录尚无结构化分析结果，暂不生成 REBT 干预建议。"];
-  }
-
-  const cognition = localizeList(analysis.cognitive_patterns);
-  const target = localizeValue(analysis.emotion_target);
-  const intensity = localizeValue(analysis.intensity);
-  const emotions = localizeList(analysis.emotion_labels);
-  const cognitionText = cognition.length > 0 ? cognition.join("、") : "尚未识别出明确认知模式";
-  const emotionText = emotions.length > 0 ? emotions.join("、") : "尚未识别出明确情绪标签";
-
-  const suggestions = [
-    `A 触发事件：请先让来访者把“发生了什么”讲成可观察事实，避免一开始就进入“我不行、没人关心、完了”等评价性语言。`,
-    `B 信念假设：围绕当前识别到的情绪“${emotionText}”和认知模式“${cognitionText}”，追问背后的必须化、灾难化、低挫折耐受或全局自我评价。`,
-    `C 情绪与行为后果：情绪强度${intensity ? `为“${intensity}”` : "暂不明确"}，可区分健康负性情绪与非健康负性情绪，例如遗憾/难过 vs 羞耻/绝望/自我攻击。`,
-    target
-      ? `情绪指向“${target}”时，建议进一步澄清：这是对自己的全局否定、对他人的读心推断，还是对情境后果的灾难化预期。`
-      : null,
-    `D 反驳提问：可以使用三类问题推进：证据问题“有什么证据说明一定如此？”；逻辑问题“失败是否等于整个人没有价值？”；实用问题“继续这样想会帮助你解决问题吗？”`,
-    `E 新有效信念：将“我必须做好，否则我就是失败者”改写为“我希望做好，但一次失败不能定义我；我可以承担后果并继续调整”。`,
-    `会谈操作顺序：先共情和命名情绪，再共同画出 A-B-C 链条；来访者稳定后再进入 D 的挑战，避免过早辩论造成防御。`,
-    `家庭练习：请来访者记录 1 个触发事件，分别写下自动想法、情绪强度、支持/反对证据，以及一个更灵活的新信念。`,
-    `下次会谈追踪：复盘新信念是否降低情绪强度、是否增加行动可能性，并观察旧信念在哪些场景最容易复燃。`,
-  ];
-
-  return suggestions.filter((item): item is string => Boolean(item));
-}
-
 function hasSavedWorksheet(result: SessionRecord): boolean {
   return Object.values(result.rebt_worksheet ?? {}).some((value) => value.trim().length > 0);
+}
+
+function shouldOfferRebtRegeneration(result: SessionRecord): boolean {
+  return Boolean(
+    result.analysis && result.interpretation.trim() && result.rebt_plan.items.length === 0,
+  );
+}
+
+function splitInterpretation(
+  interpretation: string,
+): Array<{ index: number; title: string; body: string }> {
+  const normalized = interpretation.replace(/\r\n/g, "\n").trim();
+  if (!normalized) {
+    return [];
+  }
+
+  const matches = Array.from(
+    normalized.matchAll(/(^|\n)([一二三四五六七八九十\d]+[、.．][^\n]+)/g),
+  );
+  if (matches.length === 0) {
+    return [{ index: 1, title: "核心观察", body: normalized }];
+  }
+
+  return matches.map((match, index) => {
+    const titleRaw = match[2].trim();
+    const title = titleRaw.replace(/^[一二三四五六七八九十\d]+[、.．]/, "").trim();
+    const sectionStart = (match.index ?? 0) + match[1].length + titleRaw.length;
+    const nextMatch = matches[index + 1];
+    const sectionEnd = nextMatch?.index ?? normalized.length;
+    const body = normalized.slice(sectionStart, sectionEnd).trim();
+    return {
+      index: index + 1,
+      title,
+      body,
+    };
+  });
+}
+
+function MetricBar({ value, label }: { value: number | null; label: string }) {
+  if (value === null) {
+    return <div className="metric-note">该字段为分类标签，不显示进度条。</div>;
+  }
+
+  const percent = clampPercent(value);
+  return (
+    <div aria-label={`${label}，${Math.round(percent)}%`} className="metric-bar" role="img">
+      <span style={{ width: `${percent}%` }} />
+    </div>
+  );
 }
 
 function RebtWorksheet({
@@ -246,17 +258,33 @@ function RebtWorksheet({
     const cognition = localizeList(analysis?.cognitive_patterns);
     const sourcePreview = result.source_text.trim().slice(0, 80);
 
-    setEvent(sourcePreview ? `围绕来访者表述：“${sourcePreview}${result.source_text.length > 80 ? "..." : ""}”梳理具体触发事件。` : "");
-    setBelief(cognition.length > 0 ? `重点探索：${cognition.join("、")}背后的必须化、灾难化或自我评价。` : "");
+    setEvent(
+      sourcePreview
+        ? `围绕来访者表述“${sourcePreview}${result.source_text.length > 80 ? "..." : ""}”梳理具体触发事件。`
+        : "",
+    );
+    setBelief(
+      cognition.length > 0
+        ? `重点探索：${cognition.join("、")}背后的必须化、灾难化或自我评价。`
+        : "",
+    );
     setConsequence(
       emotions.length > 0
         ? `情绪后果：${emotions.join("、")}；强度：${localizeValue(analysis?.intensity) || "未知"}。`
         : "",
     );
-    setDispute("证据问题：一定如此吗？逻辑问题：失败是否等于整个人没有价值？实用问题：继续这样想有帮助吗？");
-    setEffectiveBelief("我希望事情做好，但一次挫折不能定义我；我可以承担后果，并继续寻找可调整的下一步。");
-    setHomework("记录 1 个触发事件，写下自动想法、情绪强度、支持/反对证据，以及一个更灵活的新信念。");
-    setFollowUp("下次复盘新信念是否降低情绪强度、是否增加行动可能性，以及旧信念在哪些场景复燃。");
+    setDispute(
+      "证据问题：一定如此吗？逻辑问题：失败是否等于整个人没有价值？实用问题：继续这样想有帮助吗？",
+    );
+    setEffectiveBelief(
+      "我希望事情做好，但一次挫折不能定义我；我可以承担后果，并继续寻找可调整的下一步。",
+    );
+    setHomework(
+      "记录 1 个触发事件，写下自动想法、情绪强度、支持/反对证据，以及一个更灵活的新信念。",
+    );
+    setFollowUp(
+      "下次复盘新信念是否降低情绪强度、是否增加行动可能性，以及旧信念在哪些场景复燃。",
+    );
   }, [result]);
 
   async function handleSave() {
@@ -284,7 +312,11 @@ function RebtWorksheet({
         </label>
         <label className="worksheet-field">
           <span>C 情绪与行为后果</span>
-          <textarea disabled={isSaving} value={consequence} onChange={(event) => setConsequence(event.target.value)} />
+          <textarea
+            disabled={isSaving}
+            value={consequence}
+            onChange={(event) => setConsequence(event.target.value)}
+          />
         </label>
         <label className="worksheet-field">
           <span>D 反驳问题</span>
@@ -292,7 +324,11 @@ function RebtWorksheet({
         </label>
         <label className="worksheet-field">
           <span>E 新有效信念</span>
-          <textarea disabled={isSaving} value={effectiveBelief} onChange={(event) => setEffectiveBelief(event.target.value)} />
+          <textarea
+            disabled={isSaving}
+            value={effectiveBelief}
+            onChange={(event) => setEffectiveBelief(event.target.value)}
+          />
         </label>
         <label className="worksheet-field">
           <span>家庭练习</span>
@@ -304,8 +340,17 @@ function RebtWorksheet({
         </label>
       </div>
       <div className="worksheet-actions">
-        <span>{hasSavedWorksheet(result) ? "已保存到当前会谈记录。" : "当前为自动预填草稿，保存后会随历史记录恢复。"}</span>
-        <button className="btn primary" disabled={isSaving} onClick={handleSave} type="button">
+        <span className="worksheet-status">
+          {hasSavedWorksheet(result)
+            ? "已保存到当前会谈记录。"
+            : "当前为自动预填草稿，保存后会随历史记录一起恢复。"}
+        </span>
+        <button
+          className="btn primary worksheet-save-btn"
+          disabled={isSaving}
+          onClick={() => void handleSave()}
+          type="button"
+        >
           {isSaving ? "保存中..." : "保存工作纸"}
         </button>
       </div>
@@ -313,33 +358,18 @@ function RebtWorksheet({
   );
 }
 
-function splitInterpretation(interpretation: string): Array<{ index: number; title: string; body: string }> {
-  const normalized = interpretation.replace(/\r\n/g, "\n").trim();
-  if (!normalized) {
-    return [];
-  }
-
-  const matches = Array.from(normalized.matchAll(/(^|\n)([一二三四五六七八九十\d]+、[^\n]+)/g));
-  if (matches.length === 0) {
-    return [{ index: 1, title: "核心观察", body: normalized }];
-  }
-
-  return matches.map((match, idx) => {
-    const titleRaw = match[2].trim();
-    const title = titleRaw.replace(/^[一二三四五六七八九十\d]+、/, "");
-    const sectionStart = (match.index ?? 0) + match[1].length + titleRaw.length;
-    const nextMatch = matches[idx + 1];
-    const sectionEnd = nextMatch?.index ?? normalized.length;
-    const body = normalized.slice(sectionStart, sectionEnd).trim();
-    return { index: idx + 1, title, body };
-  });
-}
-
 export function AnalysisResultPanel({
+  isRegeneratingRebtPlan,
   isSavingFeedback,
   isSavingWorksheet,
+  pinnedQuotes = [],
+  rebtPlanErrorMessage,
+  rebtPlanStatusMessage,
   showFeedback = true,
   result,
+  worksheetErrorMessage,
+  worksheetStatusMessage,
+  onRegenerateRebtPlan,
   onSaveFeedback,
   onSaveWorksheet,
 }: AnalysisResultPanelProps) {
@@ -347,7 +377,7 @@ export function AnalysisResultPanel({
     return (
       <div className="empty-state">
         <h3>暂无分析结果</h3>
-        <p>提交文本分析后，这里会显示结构化结果和 REBT 解读。</p>
+        <p>先提交会谈文本，这里会显示结构化分析、REBT 计划和工作纸。</p>
       </div>
     );
   }
@@ -360,10 +390,27 @@ export function AnalysisResultPanel({
   const riskProgress = riskPercent(result.analysis?.risk_level);
   const sessionSummary = buildSessionSummary(result);
   const riskReviewSuggestions = buildRiskReviewSuggestions(result);
-  const rebtInterventionSuggestions = buildRebtInterventionSuggestions(result);
+  const rebtPlanItems = result.rebt_plan?.items ?? [];
+  const canRegenerateRebtPlan = shouldOfferRebtRegeneration(result);
 
   return (
     <div className="result-section fade-in">
+      {pinnedQuotes.length > 0 ? (
+        <div className="rs-body">
+          <div className="rs-head">
+            <div className="rs-eyebrow">ANNOTATIONS</div>
+            <div className="rs-title">来自文本标注</div>
+          </div>
+          <ul className="insight-list">
+            {pinnedQuotes.map((quote) => (
+              <li key={quote.id}>
+                {quote.speaker === "client" ? "来访者" : "咨询师"}：{quote.text}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
       {result.risk_alert && result.risk_alert.level !== "none" ? (
         <div className="risk-banner high" role="alert">
           <div className="row gap-sm" style={{ marginBottom: 8 }}>
@@ -410,14 +457,48 @@ export function AnalysisResultPanel({
 
       <div className="rs-body">
         <div className="rs-head">
-          <div className="rs-eyebrow">REBT PLAN</div>
-          <div className="rs-title">REBT 干预建议</div>
+          <div>
+            <div className="rs-eyebrow">REBT PLAN</div>
+            <div className="rs-title">REBT 干预建议</div>
+          </div>
+          {canRegenerateRebtPlan ? (
+            <button
+              className="history-chip"
+              disabled={isRegeneratingRebtPlan}
+              onClick={() => void onRegenerateRebtPlan(result.session_id)}
+              type="button"
+            >
+              {isRegeneratingRebtPlan ? "生成中..." : "重新生成"}
+            </button>
+          ) : null}
         </div>
-        <ul className="insight-list">
-          {rebtInterventionSuggestions.map((item) => (
-            <li key={item}>{item}</li>
-          ))}
-        </ul>
+        {rebtPlanStatusMessage ? (
+          <p className="status-banner section-banner" role="status">
+            {rebtPlanStatusMessage}
+          </p>
+        ) : null}
+        {rebtPlanErrorMessage ? (
+          <p className="error-banner section-banner" role="alert">
+            {rebtPlanErrorMessage}
+          </p>
+        ) : null}
+        {rebtPlanItems.length > 0 ? (
+          <ul className="insight-list rebt-plan-list">
+            {rebtPlanItems.map((item) => (
+              <li key={`${item.title}-${item.source_quote}`} className="rebt-plan-item">
+                <strong>{item.title}</strong>
+                {item.source_quote ? <span className="anno-quote">“{item.source_quote}”</span> : null}
+                <span>{item.detail}</span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="hint">
+            {canRegenerateRebtPlan
+              ? "当前记录缺少结构化 REBT 计划，可直接重新生成。"
+              : "当前记录暂无模型生成的 REBT 干预建议。"}
+          </p>
+        )}
       </div>
 
       <div className="rs-body">
@@ -425,6 +506,16 @@ export function AnalysisResultPanel({
           <div className="rs-eyebrow">WORKSHEET</div>
           <div className="rs-title">REBT 工作纸</div>
         </div>
+        {worksheetStatusMessage ? (
+          <p className="status-banner section-banner" role="status">
+            {worksheetStatusMessage}
+          </p>
+        ) : null}
+        {worksheetErrorMessage ? (
+          <p className="error-banner section-banner" role="alert">
+            {worksheetErrorMessage}
+          </p>
+        ) : null}
         <RebtWorksheet
           isSaving={isSavingWorksheet}
           result={result}
@@ -446,7 +537,12 @@ export function AnalysisResultPanel({
           </article>
           <article className="metric">
             <div className="metric-label">CONFIDENCE</div>
-            <div className="metric-value">置信度 · {result.analysis?.confidence}</div>
+            <div className="metric-value">
+              置信度 ·
+              {result.analysis?.confidence !== undefined
+                ? ` ${Math.round(result.analysis.confidence * 100)}%`
+                : " 未提供"}
+            </div>
             <MetricBar value={confidenceProgress} label="置信度" />
           </article>
           <article className="metric">
@@ -456,7 +552,9 @@ export function AnalysisResultPanel({
           </article>
           <article className="metric">
             <div className="metric-label">RISK</div>
-            <div className="metric-value">风险级别 · {localizeRiskLevel(result.analysis?.risk_level)}</div>
+            <div className="metric-value">
+              风险级别 · {localizeRiskLevel(result.risk_alert?.level ?? result.analysis?.risk_level)}
+            </div>
             <MetricBar value={riskProgress} label="风险级别" />
           </article>
         </div>
@@ -472,7 +570,9 @@ export function AnalysisResultPanel({
           <span>EMOTION</span>
           <div className="tag-list">
             {emotions.map((item) => (
-              <span key={item} className="tag warn">{item}</span>
+              <span key={item} className="tag warn">
+                {item}
+              </span>
             ))}
           </div>
         </div>
@@ -480,7 +580,9 @@ export function AnalysisResultPanel({
           <span>COGNITION</span>
           <div className="tag-list">
             {cognition.map((item) => (
-              <span key={item} className="tag accent">{item}</span>
+              <span key={item} className="tag accent">
+                {item}
+              </span>
             ))}
           </div>
         </div>
@@ -491,19 +593,23 @@ export function AnalysisResultPanel({
           <div className="rs-eyebrow">REBT</div>
           <div className="rs-title">REBT 解读</div>
         </div>
-        <div className="rebt">
-          {sections.map((section) => (
-            <article key={`${section.index}-${section.title}`} className="rebt-card">
-              <div className="rebt-num">
-                <span className="n">{section.index}</span>
-              </div>
-              <div className="rebt-text">
-                <strong>{section.title}</strong>
-                <p>{section.body}</p>
-              </div>
-            </article>
-          ))}
-        </div>
+        {sections.length > 0 ? (
+          <div className="rebt">
+            {sections.map((section) => (
+              <article key={`${section.index}-${section.title}`} className="rebt-card">
+                <div className="rebt-num">
+                  <span className="n">{section.index}</span>
+                </div>
+                <div className="rebt-text">
+                  <strong>{section.title}</strong>
+                  <p>{section.body}</p>
+                </div>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <p className="hint">当前记录暂无 REBT 解读内容。</p>
+        )}
       </div>
 
       {showFeedback ? (

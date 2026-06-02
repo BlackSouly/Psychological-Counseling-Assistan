@@ -115,7 +115,17 @@ export async function analyzeSession(
 export async function fetchSession(sessionId: string): Promise<SessionRecord> {
   const response = await fetch(`/api/sessions/${sessionId}`);
   if (!response.ok) {
-    throw new Error("读取记录详情失败。");
+    throw new Error(await extractErrorMessage(response, "读取记录详情失败。"));
+  }
+  return (await response.json()) as SessionRecord;
+}
+
+export async function regenerateSessionRebtPlan(sessionId: string): Promise<SessionRecord> {
+  const response = await fetch(`/api/sessions/${sessionId}/rebt-plan`, {
+    method: "POST",
+  });
+  if (!response.ok) {
+    throw new Error(await extractErrorMessage(response, "补生成 REBT 计划失败。"));
   }
   return (await response.json()) as SessionRecord;
 }
@@ -132,7 +142,7 @@ export async function updateSessionFeedback(
     body: JSON.stringify(feedback),
   });
   if (!response.ok) {
-    throw new Error("保存反馈失败。");
+    throw new Error(await extractErrorMessage(response, "保存反馈失败。"));
   }
   return (await response.json()) as SessionRecord;
 }
@@ -149,7 +159,7 @@ export async function updateSessionWorksheet(
     body: JSON.stringify(worksheet),
   });
   if (!response.ok) {
-    throw new Error("保存 REBT 工作纸失败。");
+    throw new Error(await extractErrorMessage(response, "保存 REBT 工作纸失败。"));
   }
   return (await response.json()) as SessionRecord;
 }

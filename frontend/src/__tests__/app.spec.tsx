@@ -22,6 +22,15 @@ function createAnalysisResponse(overrides: Record<string, unknown> = {}) {
     },
     risk_alert: null,
     interpretation: "一、核心观察\n这是结构化详细版解读。",
+    rebt_plan: {
+      items: [
+        {
+          title: "澄清失控预期",
+          detail: "围绕“事情会失控”追问具体证据、可控部分与最小下一步。",
+          source_quote: "事情会失控",
+        },
+      ],
+    },
     feedback: {
       notes: "",
       notes_color: "black",
@@ -179,6 +188,8 @@ describe("App", () => {
     await waitFor(() => {
       expect(screen.getByText("核心观察")).toBeInTheDocument();
     });
+    expect(screen.getByText("澄清失控预期")).toBeInTheDocument();
+    expect(screen.getByText("围绕“事情会失控”追问具体证据、可控部分与最小下一步。")).toBeInTheDocument();
   });
 
   it("分析请求进行中时禁用按钮并显示分析中状态", async () => {

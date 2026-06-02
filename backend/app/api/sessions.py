@@ -30,33 +30,50 @@ def get_session_services() -> SessionServices:
 SessionServicesDep = Annotated[SessionServices, Depends(get_session_services)]
 
 
+def translate_session_runtime_error(exc: RuntimeError) -> str:
+    message = str(exc)
+    if "expected JSON schema" in message:
+        return "模型返回的 REBT 结构化结果不完整，请重试生成。"
+    if "truncated by the model token limit" in message:
+        return "模型输出被截断，未能生成完整的 REBT 结构化结果，请重试。"
+    if "did not contain displayable text" in message:
+        return "模型没有返回可解析的 REBT 结果，请重试。"
+    return message
+
+
+def model_status_error(exc: httpx.HTTPStatusError) -> HTTPException:
+    return HTTPException(
+        status_code=502,
+        detail=f"上游模型服务返回 {exc.response.status_code}，请检查 DeepSeek/Anthropic API 配置是否有效。",
+    )
+
+
+def model_request_error(exc: httpx.RequestError) -> HTTPException:
+    return HTTPException(
+        status_code=503,
+        detail="无法连接到上游模型服务，请稍后重试。",
+    )
+
+
 @router.post("/sessions/analyze", response_model=SessionRecord, status_code=201)
 def analyze_session(payload: AnalyzeSessionRequest, services: SessionServicesDep) -> SessionRecord:
     try:
         risk_alert = services.risk_service.screen(payload.source_text)
         analysis = services.analyzer.analyze(payload.source_text)
-        interpretation = services.interpreter.interpret(payload.source_text, analysis)
+        interpretation_result = services.interpreter.interpret(payload.source_text, analysis)
     except httpx.HTTPStatusError as exc:
-        raise HTTPException(
-            status_code=502,
-            detail=(
-                f"上游模型服务返回 {exc.response.status_code}，"
-                "请检查 DeepSeek/Anthropic API 配置是否有效。"
-            ),
-        ) from exc
+        raise model_status_error(exc) from exc
     except httpx.RequestError as exc:
-        raise HTTPException(
-            status_code=503,
-            detail="无法连接到上游模型服务，请稍后重试。",
-        ) from exc
+        raise model_request_error(exc) from exc
     except RuntimeError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
+        raise HTTPException(status_code=503, detail=translate_session_runtime_error(exc)) from exc
 
     session = SessionRecord.create_completed(
         client_code=payload.client_code,
         source_text=payload.source_text,
         analysis=analysis,
-        interpretation=interpretation,
+        interpretation=interpretation_result.interpretation,
+        rebt_plan=interpretation_result.rebt_plan,
         risk_alert=risk_alert,
     )
     services.storage.save_session(session)
@@ -69,6 +86,35 @@ def get_session(session_id: str, services: SessionServicesDep) -> SessionRecord:
         return services.storage.get_session(session_id)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/sessions/{session_id}/rebt-plan", response_model=SessionRecord)
+def regenerate_rebt_plan(session_id: str, services: SessionServicesDep) -> SessionRecord:
+    try:
+        session = services.storage.get_session(session_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    if session.analysis is None:
+        raise HTTPException(status_code=409, detail="当前记录尚无结构化分析结果，无法补生成 REBT 计划。")
+
+    try:
+        interpretation_result = services.interpreter.interpret(session.source_text, session.analysis)
+    except httpx.HTTPStatusError as exc:
+        raise model_status_error(exc) from exc
+    except httpx.RequestError as exc:
+        raise model_request_error(exc) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=translate_session_runtime_error(exc)) from exc
+
+    updated = session.model_copy(
+        update={
+            "interpretation": interpretation_result.interpretation,
+            "rebt_plan": interpretation_result.rebt_plan,
+        }
+    )
+    services.storage.save_session(updated)
+    return updated
 
 
 @router.patch("/sessions/{session_id}/feedback", response_model=SessionRecord)
