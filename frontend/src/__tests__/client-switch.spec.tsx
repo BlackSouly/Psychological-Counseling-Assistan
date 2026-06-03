@@ -38,6 +38,7 @@ describe("client switch workflow", () => {
           session_id: "session_001",
           client_code: "client_001",
           created_at: "2026-05-08T10:00:00Z",
+          updated_at: "2026-05-08T10:00:00Z",
           source_text: "我最近一直很焦虑。",
           analysis: {
             emotion_labels: ["焦虑"],

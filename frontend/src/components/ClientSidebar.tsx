@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 
+import { clientDisplayBadge, clientDisplayName } from "../clientDisplay";
 import type { ClientProfile, CreateClientPayload } from "../types";
 
 type ClientSidebarProps = {
@@ -90,7 +91,8 @@ export function ClientSidebar({
           </div>
         ) : null}
         {visibleClients.map((client) => {
-          const suffix = client.client_code.replace("client_", "");
+          const suffix = clientDisplayBadge(client);
+          const displayName = clientDisplayName(client);
           return (
             <button
               key={client.client_code}
@@ -100,7 +102,7 @@ export function ClientSidebar({
             >
               <div className="client-mono">{suffix}</div>
               <div className="client-meta">
-                <div className="client-name">{client.alias}</div>
+                <div className="client-name">{displayName}</div>
                 <span>{client.client_code}</span>
               </div>
               <div className="client-status">

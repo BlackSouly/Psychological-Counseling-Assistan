@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 
-import type { SessionRecord } from "../types";
+import type { RebtLineInterpretation, SessionRecord } from "../types";
 import { FeedbackPanel } from "./FeedbackPanel";
 import type { PinnedQuote } from "./SessionText/sessionText.types";
 
 type AnalysisResultPanelProps = {
+  currentSubmissionLabel?: string | null;
   isRegeneratingRebtPlan: boolean;
   isSavingFeedback: boolean;
   isSavingWorksheet: boolean;
@@ -181,6 +182,181 @@ function shouldOfferRebtRegeneration(result: SessionRecord): boolean {
   );
 }
 
+function markdownText(value: string | null | undefined): string {
+  return value?.trim() || "未提供";
+}
+
+function markdownList(items: string[]): string {
+  return items.length > 0 ? items.map((item) => `- ${item}`).join("\n") : "- 未提供";
+}
+
+function markdownSection(title: string, body: string): string {
+  return `## ${title}\n\n${body.trim() || "未提供"}`;
+}
+
+function displayWorksheet(result: SessionRecord): SessionRecord["rebt_worksheet"] {
+  if (hasSavedWorksheet(result)) {
+    return result.rebt_worksheet;
+  }
+
+  const worksheetDraft = result.rebt_plan?.worksheet_draft;
+  if (worksheetDraft && Object.values(worksheetDraft).some((value) => value.trim().length > 0)) {
+    return worksheetDraft;
+  }
+
+  return result.rebt_worksheet;
+}
+
+export function buildMarkdownExport(result: SessionRecord, currentSubmissionLabel?: string | null): string {
+  const sessionSummary = buildSessionSummary(result);
+  const riskReviewSuggestions = buildRiskReviewSuggestions(result);
+  const lineInterpretations = result.rebt_plan?.line_interpretations ?? [];
+  const rebtItems = result.rebt_plan?.items ?? [];
+  const worksheet = displayWorksheet(result);
+  const sections = splitInterpretation(result.interpretation);
+  const feedback = result.feedback;
+
+  const parts = [
+    `# REBT 会谈分析记录`,
+    [
+      `- 来访者编号：${result.client_code}`,
+      `- 会谈记录：${currentSubmissionLabel ?? result.session_id}`,
+      `- 创建时间：${result.created_at}`,
+      `- 更新时间：${result.updated_at || "未提供"}`,
+      `- 风险级别：${localizeRiskLevel(result.risk_alert?.level ?? result.analysis?.risk_level) || "未知"}`,
+    ].join("\n"),
+    markdownSection("会谈文本", markdownText(result.source_text)),
+    markdownSection("会谈摘要", markdownList(sessionSummary)),
+    markdownSection("风险复核建议", markdownList(riskReviewSuggestions)),
+    markdownSection(
+      "关键句逐句解读",
+      lineInterpretations.length > 0
+        ? lineInterpretations
+            .map((item, index) =>
+              [
+                `### ${index + 1}. ${markdownText(item.rebt_step || "REBT 片段")}`,
+                item.source_quote ? `> ${item.source_quote}` : null,
+                item.activating_event ? `- A 触发事件：${item.activating_event}` : null,
+                item.belief ? `- B 信念：${item.belief}` : null,
+                item.consequence ? `- C 后果：${item.consequence}` : null,
+                item.dispute_direction ? `- D 辩论方向：${item.dispute_direction}` : null,
+                item.intervention_question ? `- 咨询追问：${item.intervention_question}` : null,
+                item.risk_note ? `- 风险/边界：${item.risk_note}` : null,
+              ]
+                .filter((line): line is string => Boolean(line))
+                .join("\n"),
+            )
+            .join("\n\n")
+        : "未提供",
+    ),
+    markdownSection(
+      "REBT 解读",
+      sections.length > 0
+        ? sections.map((section) => `### ${section.title}\n\n${markdownText(section.body)}`).join("\n\n")
+        : markdownText(result.interpretation),
+    ),
+    markdownSection(
+      "REBT 干预建议",
+      rebtItems.length > 0
+        ? rebtItems
+            .map((item, index) =>
+              [
+                `${index + 1}. ${item.title}`,
+                item.source_quote ? `   - 原文依据：${item.source_quote}` : null,
+                `   - 建议：${item.detail}`,
+              ]
+                .filter((line): line is string => Boolean(line))
+                .join("\n"),
+            )
+            .join("\n")
+        : "未提供",
+    ),
+    markdownSection(
+      "REBT 工作纸",
+      [
+        `- A 触发事件：${markdownText(worksheet.activating_event)}`,
+        `- B 信念/解释：${markdownText(worksheet.belief)}`,
+        `- C 情绪与行为后果：${markdownText(worksheet.consequence)}`,
+        `- D 反驳问题：${markdownText(worksheet.dispute)}`,
+        `- E 新有效信念：${markdownText(worksheet.effective_belief)}`,
+        `- 家庭练习：${markdownText(worksheet.homework)}`,
+        `- 下次会谈追踪：${markdownText(worksheet.follow_up)}`,
+      ].join("\n"),
+    ),
+    markdownSection(
+      "专业反馈",
+      [
+        `- 批注说明：${markdownText(feedback.notes)}`,
+        `- 评分：${feedback.rating === null ? "未评分" : feedback.rating}`,
+      ].join("\n"),
+    ),
+  ];
+
+  return `${parts.join("\n\n")}\n`;
+}
+
+function toChineseOrdinal(value: number): string {
+  const digits = ["零", "一", "二", "三", "四", "五", "六", "七", "八", "九"];
+
+  if (!Number.isInteger(value) || value <= 0) {
+    return String(value);
+  }
+
+  if (value < 10) {
+    return digits[value];
+  }
+
+  if (value === 10) {
+    return "十";
+  }
+
+  if (value < 20) {
+    return `十${digits[value % 10]}`;
+  }
+
+  if (value < 100) {
+    const tens = Math.floor(value / 10);
+    const ones = value % 10;
+    return `${digits[tens]}十${ones === 0 ? "" : digits[ones]}`;
+  }
+
+  return String(value);
+}
+
+function clientExportName(clientCode: string): string {
+  const suffix = clientCode.match(/(\d+)$/)?.[1];
+  return suffix ? `来访者${suffix}` : `来访者${clientCode}`;
+}
+
+function sanitizeExportFileName(fileName: string): string {
+  return fileName.replace(/[<>:"/\\|?*\u0000-\u001F]/g, "").replace(/\s+/g, "").slice(0, 120);
+}
+
+export function buildMarkdownExportFileName(
+  result: SessionRecord,
+  currentSubmissionLabel?: string | null,
+): string {
+  const submissionIndex = currentSubmissionLabel?.match(/第\s*(\d+)\s*次/)?.[1];
+  const submissionName = submissionIndex
+    ? `第${toChineseOrdinal(Number(submissionIndex))}次提交内容`
+    : "会谈分析内容";
+
+  return `${sanitizeExportFileName(`${clientExportName(result.client_code)}${submissionName}`)}.md`;
+}
+
+function exportMarkdown(result: SessionRecord, currentSubmissionLabel?: string | null) {
+  const markdown = buildMarkdownExport(result, currentSubmissionLabel);
+  const blob = new Blob([markdown], { type: "text/markdown;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = buildMarkdownExportFileName(result, currentSubmissionLabel);
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
 function splitInterpretation(
   interpretation: string,
 ): Array<{ index: number; title: string; body: string }> {
@@ -211,6 +387,154 @@ function splitInterpretation(
   });
 }
 
+const rebtConceptSectionMeta = [
+  { title: "核心概念化", eyebrow: "FORMULATION" },
+  { title: "维持机制", eyebrow: "MAINTENANCE" },
+  { title: "风险与边界", eyebrow: "BOUNDARY" },
+  { title: "干预优先级", eyebrow: "SEQUENCE" },
+] as const;
+
+type RebtConceptSection = {
+  index: number;
+  title: string;
+  body: string;
+  eyebrow: string;
+};
+
+function splitRebtConceptualization(
+  interpretation: string,
+): RebtConceptSection[] {
+  const sections = splitInterpretation(interpretation);
+  const conceptSections: Array<RebtConceptSection | null> = rebtConceptSectionMeta.map((meta, index) => {
+    const section = sections.find((item) => item.title === meta.title);
+    return section
+      ? {
+          index: index + 1,
+          title: section.title,
+          body: section.body,
+          eyebrow: meta.eyebrow,
+        }
+      : null;
+  });
+
+  if (conceptSections.some((section) => section === null)) {
+    return [];
+  }
+
+  return conceptSections.filter((section): section is RebtConceptSection => section !== null);
+}
+
+function splitParagraphs(text: string): string[] {
+  return text
+    .split(/\n+/)
+    .map((paragraph) => paragraph.trim())
+    .filter(Boolean);
+}
+
+type LineRebtFocusBadge = {
+  label: string;
+  tone: "muted" | "warn" | "accent" | "good" | "risk";
+};
+
+function buildLineRebtFocusBadges(item: RebtLineInterpretation): LineRebtFocusBadge[] {
+  return [
+    item.rebt_step ? { label: `环节 · ${item.rebt_step}`, tone: "muted" } : null,
+    item.belief ? { label: "信念靶点", tone: "warn" } : null,
+    item.consequence ? { label: "后果证据", tone: "accent" } : null,
+    item.dispute_direction || item.intervention_question ? { label: "可辩论", tone: "good" } : null,
+    item.risk_note ? { label: "需复核", tone: "risk" } : null,
+  ].filter((badge): badge is LineRebtFocusBadge => badge !== null);
+}
+
+type WorksheetEvidence = {
+  label: string;
+  detail: string;
+  quote?: string;
+  targetId?: string;
+};
+
+type LineEvidenceField =
+  | "activating_event"
+  | "belief"
+  | "consequence"
+  | "dispute_direction"
+  | "intervention_question";
+
+const lineEvidenceLabels: Record<LineEvidenceField, string> = {
+  activating_event: "来自逐句解读 · A 触发事件",
+  belief: "来自逐句解读 · B 信念靶点",
+  consequence: "来自逐句解读 · C 后果证据",
+  dispute_direction: "来自逐句解读 · D 辩论方向",
+  intervention_question: "来自逐句解读 · 咨询追问",
+};
+
+function lineRebtTargetId(index: number): string {
+  return `line-rebt-card-${index}`;
+}
+
+function findLineEvidence(result: SessionRecord, field: LineEvidenceField): WorksheetEvidence | null {
+  const lineIndex = (result.rebt_plan?.line_interpretations ?? []).findIndex((item) =>
+    item[field].trim(),
+  );
+  if (lineIndex === -1) {
+    return null;
+  }
+  const line = result.rebt_plan?.line_interpretations?.[lineIndex];
+  if (!line) {
+    return null;
+  }
+
+  return {
+    label: lineEvidenceLabels[field],
+    detail: line[field],
+    quote: line.source_quote,
+    targetId: lineRebtTargetId(lineIndex),
+  };
+}
+
+function worksheetDraftEvidence(result: SessionRecord, label: string, detail: string): WorksheetEvidence | null {
+  const worksheetDraft = result.rebt_plan?.worksheet_draft;
+  if (!worksheetDraft || !detail.trim()) {
+    return null;
+  }
+
+  return {
+    label,
+    detail,
+  };
+}
+
+function WorksheetEvidenceNote({
+  evidence,
+  onJumpToSource,
+}: {
+  evidence: WorksheetEvidence | null;
+  onJumpToSource?: (targetId: string) => void;
+}) {
+  if (!evidence) {
+    return null;
+  }
+  const canJump = Boolean(evidence.targetId && onJumpToSource);
+
+  return (
+    <div className="worksheet-evidence">
+      {canJump ? (
+        <button
+          className="worksheet-evidence-label worksheet-evidence-link"
+          onClick={() => onJumpToSource?.(evidence.targetId ?? "")}
+          type="button"
+        >
+          {evidence.label}
+        </button>
+      ) : (
+        <span className="worksheet-evidence-label">{evidence.label}</span>
+      )}
+      {evidence.quote ? <q>{evidence.quote}</q> : null}
+      <p>{evidence.detail}</p>
+    </div>
+  );
+}
+
 function MetricBar({ value, label }: { value: number | null; label: string }) {
   if (value === null) {
     return <div className="metric-note">该字段为分类标签，不显示进度条。</div>;
@@ -226,10 +550,12 @@ function MetricBar({ value, label }: { value: number | null; label: string }) {
 
 function RebtWorksheet({
   isSaving,
+  onJumpToSource,
   result,
   onSave,
 }: {
   isSaving: boolean;
+  onJumpToSource?: (targetId: string) => void;
   result: SessionRecord;
   onSave: (worksheet: SessionRecord["rebt_worksheet"]) => Promise<void>;
 }) {
@@ -250,6 +576,18 @@ function RebtWorksheet({
       setEffectiveBelief(result.rebt_worksheet.effective_belief);
       setHomework(result.rebt_worksheet.homework);
       setFollowUp(result.rebt_worksheet.follow_up);
+      return;
+    }
+
+    const worksheetDraft = result.rebt_plan?.worksheet_draft;
+    if (worksheetDraft && Object.values(worksheetDraft).some((value) => value.trim().length > 0)) {
+      setEvent(worksheetDraft.activating_event);
+      setBelief(worksheetDraft.belief);
+      setConsequence(worksheetDraft.consequence);
+      setDispute(worksheetDraft.dispute);
+      setEffectiveBelief(worksheetDraft.effective_belief);
+      setHomework(worksheetDraft.homework);
+      setFollowUp(worksheetDraft.follow_up);
       return;
     }
 
@@ -299,45 +637,95 @@ function RebtWorksheet({
     });
   }
 
+  const eventEvidence = findLineEvidence(result, "activating_event");
+  const beliefEvidence = findLineEvidence(result, "belief");
+  const consequenceEvidence = findLineEvidence(result, "consequence");
+  const disputeEvidence =
+    findLineEvidence(result, "dispute_direction") ?? findLineEvidence(result, "intervention_question");
+  const effectiveBeliefEvidence = worksheetDraftEvidence(result, "来自工作纸草案 · E 新信念", effectiveBelief);
+  const homeworkEvidence = worksheetDraftEvidence(result, "来自工作纸草案 · 家庭练习", homework);
+  const followUpEvidence = worksheetDraftEvidence(result, "来自工作纸草案 · 下次追踪", followUp);
+
   return (
     <div className="worksheet">
       <div className="worksheet-grid">
-        <label className="worksheet-field">
-          <span>A 触发事件</span>
-          <textarea disabled={isSaving} value={event} onChange={(event) => setEvent(event.target.value)} />
-        </label>
-        <label className="worksheet-field">
-          <span>B 信念/解释</span>
-          <textarea disabled={isSaving} value={belief} onChange={(event) => setBelief(event.target.value)} />
-        </label>
-        <label className="worksheet-field">
-          <span>C 情绪与行为后果</span>
+        <div className="worksheet-field">
+          <label htmlFor="worksheet-activating-event">A 触发事件</label>
           <textarea
+            aria-label="A 触发事件"
             disabled={isSaving}
+            id="worksheet-activating-event"
+            value={event}
+            onChange={(event) => setEvent(event.target.value)}
+          />
+          <WorksheetEvidenceNote evidence={eventEvidence} onJumpToSource={onJumpToSource} />
+        </div>
+        <div className="worksheet-field">
+          <label htmlFor="worksheet-belief">B 信念/解释</label>
+          <textarea
+            aria-label="B 信念/解释"
+            disabled={isSaving}
+            id="worksheet-belief"
+            value={belief}
+            onChange={(event) => setBelief(event.target.value)}
+          />
+          <WorksheetEvidenceNote evidence={beliefEvidence} onJumpToSource={onJumpToSource} />
+        </div>
+        <div className="worksheet-field">
+          <label htmlFor="worksheet-consequence">C 情绪与行为后果</label>
+          <textarea
+            aria-label="C 情绪与行为后果"
+            disabled={isSaving}
+            id="worksheet-consequence"
             value={consequence}
             onChange={(event) => setConsequence(event.target.value)}
           />
-        </label>
-        <label className="worksheet-field">
-          <span>D 反驳问题</span>
-          <textarea disabled={isSaving} value={dispute} onChange={(event) => setDispute(event.target.value)} />
-        </label>
-        <label className="worksheet-field">
-          <span>E 新有效信念</span>
+          <WorksheetEvidenceNote evidence={consequenceEvidence} onJumpToSource={onJumpToSource} />
+        </div>
+        <div className="worksheet-field">
+          <label htmlFor="worksheet-dispute">D 反驳问题</label>
           <textarea
+            aria-label="D 反驳问题"
             disabled={isSaving}
+            id="worksheet-dispute"
+            value={dispute}
+            onChange={(event) => setDispute(event.target.value)}
+          />
+          <WorksheetEvidenceNote evidence={disputeEvidence} onJumpToSource={onJumpToSource} />
+        </div>
+        <div className="worksheet-field">
+          <label htmlFor="worksheet-effective-belief">E 新有效信念</label>
+          <textarea
+            aria-label="E 新有效信念"
+            disabled={isSaving}
+            id="worksheet-effective-belief"
             value={effectiveBelief}
             onChange={(event) => setEffectiveBelief(event.target.value)}
           />
-        </label>
-        <label className="worksheet-field">
-          <span>家庭练习</span>
-          <textarea disabled={isSaving} value={homework} onChange={(event) => setHomework(event.target.value)} />
-        </label>
-        <label className="worksheet-field worksheet-wide">
-          <span>下次会谈追踪</span>
-          <textarea disabled={isSaving} value={followUp} onChange={(event) => setFollowUp(event.target.value)} />
-        </label>
+          <WorksheetEvidenceNote evidence={effectiveBeliefEvidence} />
+        </div>
+        <div className="worksheet-field">
+          <label htmlFor="worksheet-homework">家庭练习</label>
+          <textarea
+            aria-label="家庭练习"
+            disabled={isSaving}
+            id="worksheet-homework"
+            value={homework}
+            onChange={(event) => setHomework(event.target.value)}
+          />
+          <WorksheetEvidenceNote evidence={homeworkEvidence} />
+        </div>
+        <div className="worksheet-field worksheet-wide">
+          <label htmlFor="worksheet-follow-up">下次会谈追踪</label>
+          <textarea
+            aria-label="下次会谈追踪"
+            disabled={isSaving}
+            id="worksheet-follow-up"
+            value={followUp}
+            onChange={(event) => setFollowUp(event.target.value)}
+          />
+          <WorksheetEvidenceNote evidence={followUpEvidence} />
+        </div>
       </div>
       <div className="worksheet-actions">
         <span className="worksheet-status">
@@ -359,6 +747,7 @@ function RebtWorksheet({
 }
 
 export function AnalysisResultPanel({
+  currentSubmissionLabel,
   isRegeneratingRebtPlan,
   isSavingFeedback,
   isSavingWorksheet,
@@ -373,6 +762,20 @@ export function AnalysisResultPanel({
   onSaveFeedback,
   onSaveWorksheet,
 }: AnalysisResultPanelProps) {
+  const [highlightedLineRebtId, setHighlightedLineRebtId] = useState<string | null>(null);
+
+  function handleJumpToLineRebt(targetId: string) {
+    const target = document.getElementById(targetId);
+    if (!target) {
+      return;
+    }
+    target.scrollIntoView?.({ behavior: "smooth", block: "center" });
+    setHighlightedLineRebtId(targetId);
+    window.setTimeout(() => {
+      setHighlightedLineRebtId((current) => (current === targetId ? null : current));
+    }, 1800);
+  }
+
   if (!result) {
     return (
       <div className="empty-state">
@@ -385,16 +788,28 @@ export function AnalysisResultPanel({
   const emotions = localizeList(result.analysis?.emotion_labels);
   const cognition = localizeList(result.analysis?.cognitive_patterns);
   const sections = splitInterpretation(result.interpretation);
+  const rebtConceptSections = splitRebtConceptualization(result.interpretation);
   const intensityProgress = intensityPercent(result.analysis?.intensity);
   const confidenceProgress = confidencePercent(result.analysis?.confidence);
   const riskProgress = riskPercent(result.analysis?.risk_level);
   const sessionSummary = buildSessionSummary(result);
   const riskReviewSuggestions = buildRiskReviewSuggestions(result);
+  const lineInterpretations = result.rebt_plan?.line_interpretations ?? [];
   const rebtPlanItems = result.rebt_plan?.items ?? [];
   const canRegenerateRebtPlan = shouldOfferRebtRegeneration(result);
 
   return (
     <div className="result-section fade-in">
+      <div className="result-actions">
+        <button
+          className="btn ghost sm"
+          onClick={() => exportMarkdown(result, currentSubmissionLabel)}
+          type="button"
+        >
+          导出 Markdown
+        </button>
+      </div>
+
       {pinnedQuotes.length > 0 ? (
         <div className="rs-body">
           <div className="rs-head">
@@ -434,6 +849,7 @@ export function AnalysisResultPanel({
       <div className="rs-body">
         <div className="rs-head">
           <div className="rs-eyebrow">SUMMARY</div>
+          {currentSubmissionLabel ? <div className="rs-submeta">对应 {currentSubmissionLabel}</div> : null}
           <div className="rs-title">会谈摘要</div>
         </div>
         <ul className="insight-list">
@@ -454,6 +870,87 @@ export function AnalysisResultPanel({
           ))}
         </ul>
       </div>
+
+      {lineInterpretations.length > 0 ? (
+        <div className="rs-body">
+          <div className="rs-head">
+            <div className="rs-eyebrow">LINE REBT</div>
+            <div className="rs-title">关键句逐句解读</div>
+          </div>
+          <div className="rebt">
+            {lineInterpretations.map((item, index) => {
+              const focusBadges = buildLineRebtFocusBadges(item);
+              return (
+                <article
+                  id={lineRebtTargetId(index)}
+                  key={`${item.source_quote}-${index}`}
+                  className={`rebt-card line-rebt-card${
+                    highlightedLineRebtId === lineRebtTargetId(index) ? " line-rebt-card-highlight" : ""
+                  }`}
+                >
+                  <div className="rebt-num">
+                    <span className="n">{index + 1}</span>
+                  </div>
+                  <div className="rebt-text line-rebt-text">
+                    <div className="line-rebt-head">
+                      <strong>{item.rebt_step || "REBT 片段"}</strong>
+                      {focusBadges.length > 0 ? (
+                        <div className="line-rebt-focus" aria-label="关键句重点标识">
+                          <span className="line-rebt-focus-label">重点</span>
+                          {focusBadges.map((badge) => (
+                            <span key={`${badge.label}-${badge.tone}`} className={`pill ${badge.tone}`}>
+                              {badge.label}
+                            </span>
+                          ))}
+                        </div>
+                      ) : null}
+                      {item.source_quote ? <p className="line-rebt-quote">“{item.source_quote}”</p> : null}
+                    </div>
+                    <div className="line-rebt-grid">
+                      {item.activating_event ? (
+                        <div className="line-rebt-point">
+                          <span className="pill muted">A</span>
+                          <p>{item.activating_event}</p>
+                        </div>
+                      ) : null}
+                      {item.belief ? (
+                        <div className="line-rebt-point">
+                          <span className="pill warn">B</span>
+                          <p>{item.belief}</p>
+                        </div>
+                      ) : null}
+                      {item.consequence ? (
+                        <div className="line-rebt-point">
+                          <span className="pill accent">C</span>
+                          <p>{item.consequence}</p>
+                        </div>
+                      ) : null}
+                      {item.dispute_direction ? (
+                        <div className="line-rebt-point">
+                          <span className="pill good">D</span>
+                          <p>{item.dispute_direction}</p>
+                        </div>
+                      ) : null}
+                      {item.intervention_question ? (
+                        <div className="line-rebt-point line-rebt-point-wide">
+                          <span className="pill muted">追问</span>
+                          <p>{item.intervention_question}</p>
+                        </div>
+                      ) : null}
+                      {item.risk_note ? (
+                        <div className="line-rebt-point line-rebt-point-wide">
+                          <span className="pill risk">风险</span>
+                          <p>{item.risk_note}</p>
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
 
       <div className="rs-body">
         <div className="rs-head">
@@ -518,6 +1015,7 @@ export function AnalysisResultPanel({
         ) : null}
         <RebtWorksheet
           isSaving={isSavingWorksheet}
+          onJumpToSource={handleJumpToLineRebt}
           result={result}
           onSave={(worksheet) => onSaveWorksheet(result.session_id, worksheet)}
         />
@@ -593,7 +1091,26 @@ export function AnalysisResultPanel({
           <div className="rs-eyebrow">REBT</div>
           <div className="rs-title">REBT 解读</div>
         </div>
-        {sections.length > 0 ? (
+        {rebtConceptSections.length > 0 ? (
+          <div className="rebt-layer-list">
+            {rebtConceptSections.map((section) => (
+              <article key={section.title} className="rebt-layer-card">
+                <div className="rebt-layer-head">
+                  <span className="rebt-layer-index">{section.index}</span>
+                  <div>
+                    <div className="rs-eyebrow">{section.eyebrow}</div>
+                    <strong>{section.title}</strong>
+                  </div>
+                </div>
+                <div className="rebt-layer-body">
+                  {splitParagraphs(section.body).map((paragraph) => (
+                    <p key={paragraph}>{paragraph}</p>
+                  ))}
+                </div>
+              </article>
+            ))}
+          </div>
+        ) : sections.length > 0 ? (
           <div className="rebt">
             {sections.map((section) => (
               <article key={`${section.index}-${section.title}`} className="rebt-card">

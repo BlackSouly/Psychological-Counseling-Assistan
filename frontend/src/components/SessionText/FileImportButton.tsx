@@ -20,7 +20,11 @@ async function readUtf8Text(file: File): Promise<string> {
   return text.replace(/^\uFEFF/, "");
 }
 
-export function FileImportButton({ disabled = false, onImportedText, onError }: FileImportButtonProps) {
+export function FileImportButton({
+  disabled = false,
+  onImportedText,
+  onError,
+}: FileImportButtonProps) {
   const inputRef = useRef<HTMLInputElement>(null);
 
   async function handleFile(file: File) {

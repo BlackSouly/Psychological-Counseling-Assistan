@@ -4,6 +4,7 @@ import json
 from typing import Protocol
 
 import httpx
+from pydantic import ValidationError
 
 from app.config import get_provider_config
 from app.models.session import StructuredAnalysis
@@ -57,8 +58,15 @@ class AnthropicStructuredAnalyzer:
         payload = response.json()
         text_output = "".join(
             block["text"] for block in payload.get("content", []) if block.get("type") == "text"
-        )
-        return StructuredAnalysis.model_validate(json.loads(text_output))
+        ).strip()
+        if payload.get("stop_reason") == "max_tokens":
+            raise RuntimeError("Analysis response was truncated by the model token limit.")
+        if not text_output:
+            raise RuntimeError("Analysis response did not contain displayable text.")
+        try:
+            return StructuredAnalysis.model_validate(json.loads(text_output))
+        except (json.JSONDecodeError, ValidationError) as exc:
+            raise RuntimeError("Analysis response did not match the expected JSON schema.") from exc
 
 
 class UnconfiguredStructuredAnalyzer:

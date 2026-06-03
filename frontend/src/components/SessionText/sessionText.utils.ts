@@ -1,7 +1,14 @@
-import type { ParsedLine, SessionTextState, Speaker, TranscriptSegment } from "./sessionText.types";
+import type {
+  InputMode,
+  ParsedLine,
+  SessionTextState,
+  Speaker,
+  SubmittedTranscriptEntry,
+  TranscriptSegment,
+} from "./sessionText.types";
 
-const CLIENT_PREFIX = /^(来访者|C|CP)\s*[:：]\s*/i;
-const THERAPIST_PREFIX = /^(咨询师|T|TP)\s*[:：]\s*/i;
+const CLIENT_PREFIX = /^(来访者|来访|CP|C)\s*[:：]?\s*/i;
+const THERAPIST_PREFIX = /^(咨询师|咨询|TP|T)\s*[:：]?\s*/i;
 
 export function createId(prefix: string): string {
   return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
@@ -17,8 +24,48 @@ export function createInitialSessionTextState(sessionId: string): SessionTextSta
     inputMode: "plain",
     segments: [],
     plainText: "",
+    timelineEntries: [],
     annotations: [],
     pinnedQuotes: [],
+  };
+}
+
+type LegacySessionTextState = Omit<SessionTextState, "timelineEntries"> & {
+  timelineEntries?: SubmittedTranscriptEntry[];
+};
+
+function migrateLegacySessionTextState(
+  sessionId: string,
+  candidate: LegacySessionTextState,
+): SessionTextState {
+  const baseState = createInitialSessionTextState(sessionId);
+  const migratedTimelineEntries =
+    candidate.timelineEntries && candidate.timelineEntries.length > 0
+      ? candidate.timelineEntries
+      : candidate.analysisSubmittedAt
+        ? [
+            createTimelineEntryFromDraft(
+              {
+                inputMode: candidate.inputMode ?? "plain",
+                plainText: candidate.plainText ?? "",
+                segments: Array.isArray(candidate.segments) ? candidate.segments : [],
+              },
+              candidate.analysisSubmittedAt,
+            ),
+          ].filter((entry) => entry.segments.length > 0)
+        : [];
+
+  const shouldKeepDraft =
+    !candidate.analysisSubmittedAt &&
+    (candidate.plainText?.trim() || candidate.segments?.some((segment) => segment.text?.trim()));
+
+  return {
+    ...baseState,
+    ...candidate,
+    sessionId,
+    timelineEntries: migratedTimelineEntries,
+    plainText: shouldKeepDraft ? candidate.plainText ?? "" : "",
+    segments: shouldKeepDraft && Array.isArray(candidate.segments) ? candidate.segments : [],
   };
 }
 
@@ -32,6 +79,7 @@ export function isSessionTextState(value: unknown): value is SessionTextState {
     (candidate.inputMode === "split" || candidate.inputMode === "plain") &&
     Array.isArray(candidate.segments) &&
     typeof candidate.plainText === "string" &&
+    Array.isArray(candidate.timelineEntries) &&
     Array.isArray(candidate.annotations) &&
     Array.isArray(candidate.pinnedQuotes)
   );
@@ -43,10 +91,18 @@ export function loadSessionTextState(sessionId: string): SessionTextState {
     return createInitialSessionTextState(sessionId);
   }
   const parsed = JSON.parse(stored) as unknown;
-  if (!isSessionTextState(parsed) || parsed.sessionId !== sessionId) {
+  if (!parsed || typeof parsed !== "object") {
     return createInitialSessionTextState(sessionId);
   }
-  return parsed;
+  const candidate = parsed as LegacySessionTextState;
+  if (candidate.sessionId !== sessionId) {
+    return createInitialSessionTextState(sessionId);
+  }
+  const migrated = migrateLegacySessionTextState(sessionId, candidate);
+  if (!isSessionTextState(migrated)) {
+    return createInitialSessionTextState(sessionId);
+  }
+  return migrated;
 }
 
 export function saveSessionTextState(state: SessionTextState): void {
@@ -78,7 +134,9 @@ export function parseSpeakerPrefixedText(text: string): {
   if (lines.length === 0) {
     return { shouldSuggestSplit: false, parsedLines: [] };
   }
-  const parsedLines = lines.map(detectSpeakerLine).filter((line): line is ParsedLine => Boolean(line));
+  const parsedLines = lines
+    .map(detectSpeakerLine)
+    .filter((line): line is ParsedLine => Boolean(line));
   return {
     shouldSuggestSplit: parsedLines.length / lines.length >= 0.3,
     parsedLines,
@@ -93,6 +151,81 @@ export function parsedLinesToSegments(parsedLines: ParsedLine[]): TranscriptSegm
   }));
 }
 
+export function createTranscriptSegment(speaker: Speaker): TranscriptSegment {
+  return {
+    id: createId("segment"),
+    speaker,
+    text: "",
+  };
+}
+
+export function cloneSegments(segments: TranscriptSegment[]): TranscriptSegment[] {
+  return segments.map((segment) => ({ ...segment }));
+}
+
+export function nextAppendSpeaker(segments: TranscriptSegment[]): Speaker {
+  const lastFilledSegment = [...segments].reverse().find((segment) => segment.text.trim());
+  if (!lastFilledSegment) {
+    return "client";
+  }
+  return lastFilledSegment.speaker === "client" ? "therapist" : "client";
+}
+
+export function normalizeDraftSegments(
+  inputMode: InputMode,
+  plainText: string,
+  segments: TranscriptSegment[],
+): TranscriptSegment[] {
+  if (inputMode === "split") {
+    return cloneSegments(segments.filter((segment) => segment.text.trim()));
+  }
+  const trimmed = plainText.trim();
+  if (!trimmed) {
+    return [];
+  }
+  return [
+    {
+      id: createId("segment"),
+      speaker: "client",
+      text: trimmed,
+    },
+  ];
+}
+
+export function createTimelineEntryFromDraft(
+  state: Pick<SessionTextState, "inputMode" | "plainText" | "segments">,
+  submittedAt: string,
+  entryId = createId("timeline"),
+): SubmittedTranscriptEntry {
+  return {
+    entryId,
+    inputMode: state.inputMode,
+    segments: normalizeDraftSegments(state.inputMode, state.plainText, state.segments),
+    submittedAt,
+  };
+}
+
+export function timelineEntryToDraft(
+  entry: SubmittedTranscriptEntry,
+): Pick<SessionTextState, "inputMode" | "plainText" | "segments"> {
+  if (entry.inputMode === "plain") {
+    return {
+      inputMode: "plain",
+      plainText: entry.segments.map((segment) => segment.text).join("\n"),
+      segments: [],
+    };
+  }
+  return {
+    inputMode: "split",
+    plainText: "",
+    segments: cloneSegments(entry.segments),
+  };
+}
+
+export function getTimelineSegments(entries: SubmittedTranscriptEntry[]): TranscriptSegment[] {
+  return entries.flatMap((entry) => entry.segments);
+}
+
 export function segmentsToAnalysisText(segments: TranscriptSegment[]): string {
   return segments
     .filter((segment) => segment.text.trim())
@@ -105,21 +238,18 @@ export function segmentsToAnalysisText(segments: TranscriptSegment[]): string {
 }
 
 export function getAnalysisText(state: SessionTextState): string {
-  if (state.inputMode === "plain") {
-    return state.plainText.trim();
-  }
-  return segmentsToAnalysisText(state.segments);
+  return segmentsToAnalysisText(normalizeDraftSegments(state.inputMode, state.plainText, state.segments));
 }
 
 export function hasSessionTextContent(state: SessionTextState): boolean {
-  return state.plainText.trim().length > 0 || state.segments.some((segment) => segment.text.trim());
+  return normalizeDraftSegments(state.inputMode, state.plainText, state.segments).length > 0;
 }
 
 export function getTotalCharacterCount(state: SessionTextState): number {
-  if (state.inputMode === "plain") {
-    return state.plainText.trim().length;
-  }
-  return state.segments.reduce((total, segment) => total + segment.text.trim().length, 0);
+  return normalizeDraftSegments(state.inputMode, state.plainText, state.segments).reduce(
+    (total, segment) => total + segment.text.trim().length,
+    0,
+  );
 }
 
 export function buildSegmentChunks(

@@ -17,6 +17,7 @@ export type UpdateClientStatusPayload = {
 export type SessionSummary = {
   session_id: string;
   created_at: string;
+  updated_at: string;
   source_text: string;
   emotion_labels: string[];
   intensity: string;
@@ -66,14 +67,28 @@ export type RebtPlanItem = {
   source_quote: string;
 };
 
+export type RebtLineInterpretation = {
+  source_quote: string;
+  rebt_step: string;
+  activating_event: string;
+  belief: string;
+  consequence: string;
+  dispute_direction: string;
+  intervention_question: string;
+  risk_note: string;
+};
+
 export type RebtPlan = {
+  line_interpretations?: RebtLineInterpretation[];
   items: RebtPlanItem[];
+  worksheet_draft?: RebtWorksheet;
 };
 
 export type SessionRecord = {
   session_id: string;
   client_code: string;
   created_at: string;
+  updated_at: string;
   source_text: string;
   analysis: StructuredAnalysis | null;
   risk_alert: RiskAlert | null;

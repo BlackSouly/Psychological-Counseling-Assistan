@@ -26,14 +26,29 @@ class JsonStorage:
         session_path.write_text(session.model_dump_json(indent=2), encoding="utf-8")
         return session_path
 
+    def _latest_session_updated_at(self, client_code: str) -> str:
+        client_dir = self.root / client_code
+        if not client_dir.exists():
+            return ""
+
+        latest = ""
+        for session_path in client_dir.glob("*.json"):
+            if session_path.name == "profile.json":
+                continue
+            session = SessionRecord.model_validate_json(session_path.read_text(encoding="utf-8"))
+            latest = max(latest, session.updated_at)
+        return latest
+
     def list_clients(self) -> list[ClientProfile]:
         if not self.root.exists():
             return []
 
-        clients: list[ClientProfile] = []
+        clients_with_order: list[tuple[str, ClientProfile]] = []
         for profile_path in sorted(self.root.glob("*/profile.json")):
-            clients.append(ClientProfile.model_validate_json(profile_path.read_text(encoding="utf-8")))
-        return clients
+            client = ClientProfile.model_validate_json(profile_path.read_text(encoding="utf-8"))
+            clients_with_order.append((self._latest_session_updated_at(client.client_code), client))
+        clients_with_order.sort(key=lambda item: (item[0], item[1].client_code), reverse=True)
+        return [client for _, client in clients_with_order]
 
     def allocate_next_client_code(self) -> str:
         highest_suffix = 0
@@ -62,7 +77,7 @@ class JsonStorage:
             return []
 
         summaries: list[SessionSummary] = []
-        for session_path in sorted(client_dir.glob("*.json"), reverse=True):
+        for session_path in client_dir.glob("*.json"):
             if session_path.name == "profile.json":
                 continue
             session = SessionRecord.model_validate_json(session_path.read_text(encoding="utf-8"))
@@ -70,6 +85,7 @@ class JsonStorage:
                 SessionSummary(
                     session_id=session.session_id,
                     created_at=session.created_at,
+                    updated_at=session.updated_at,
                     source_text=session.source_text,
                     emotion_labels=session.analysis.emotion_labels if session.analysis else [],
                     intensity=session.analysis.intensity if session.analysis else "",
@@ -80,6 +96,7 @@ class JsonStorage:
                     ),
                 )
             )
+        summaries.sort(key=lambda summary: (summary.updated_at, summary.session_id), reverse=True)
         return summaries
 
     def get_session(self, session_id: str) -> SessionRecord:

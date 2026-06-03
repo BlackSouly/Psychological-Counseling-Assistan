@@ -22,7 +22,7 @@ def test_save_session_writes_client_scoped_json(tmp_path: Path) -> None:
     assert saved_path.exists()
 
 
-def test_list_session_summaries_returns_newest_first(tmp_path: Path) -> None:
+def test_list_session_summaries_returns_most_recently_updated_first(tmp_path: Path) -> None:
     storage = JsonStorage(tmp_path)
     client = ClientProfile(client_code="client_001", alias="Client 001")
     storage.save_client(client)
@@ -31,12 +31,14 @@ def test_list_session_summaries_returns_newest_first(tmp_path: Path) -> None:
         session_id="session_a",
         client_code="client_001",
         created_at="2026-05-06T10-00-00Z",
+        updated_at="2026-05-06T10-00-00Z",
         source_text="older",
     )
     newer = SessionRecord(
         session_id="session_b",
         client_code="client_001",
         created_at="2026-05-06T12-00-00Z",
+        updated_at="2026-05-06T13-00-00Z",
         source_text="newer",
     )
 
@@ -56,6 +58,7 @@ def test_list_session_summaries_includes_intensity_and_worksheet_state(tmp_path:
         session_id="session_a",
         client_code="client_001",
         created_at="2026-05-06T10-00-00Z",
+        updated_at="2026-05-06T10-00-00Z",
         source_text="session text",
         analysis=StructuredAnalysis(
             emotion_labels=["焦虑"],
@@ -72,6 +75,37 @@ def test_list_session_summaries_includes_intensity_and_worksheet_state(tmp_path:
     summary = storage.list_session_summaries("client_001")[0]
     assert summary.intensity == "高"
     assert summary.has_rebt_worksheet is True
+
+
+def test_list_clients_returns_most_recently_updated_clients_first(tmp_path: Path) -> None:
+    storage = JsonStorage(tmp_path)
+    older_client = ClientProfile(client_code="client_001", alias="Older Client")
+    newer_client = ClientProfile(client_code="client_002", alias="Newer Client")
+    storage.save_client(older_client)
+    storage.save_client(newer_client)
+
+    storage.save_session(
+        SessionRecord(
+            session_id="session_a",
+            client_code="client_001",
+            created_at="2026-05-06T10-00-00Z",
+            updated_at="2026-05-06T10-00-00Z",
+            source_text="older",
+        )
+    )
+    storage.save_session(
+        SessionRecord(
+            session_id="session_b",
+            client_code="client_002",
+            created_at="2026-05-06T09-00-00Z",
+            updated_at="2026-05-06T14-00-00Z",
+            source_text="newer",
+        )
+    )
+
+    clients = storage.list_clients()
+
+    assert [client.client_code for client in clients] == ["client_002", "client_001"]
 
 
 def test_list_clients_defaults_status_for_legacy_profile(tmp_path: Path) -> None:

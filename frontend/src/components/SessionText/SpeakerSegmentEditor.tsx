@@ -5,6 +5,7 @@ import type { Speaker, TranscriptSegment } from "./sessionText.types";
 
 type SpeakerSegmentEditorProps = {
   autoFocusMode?: "edit" | "append";
+  highlightedSegmentId?: string | null;
   segments: TranscriptSegment[];
   onSegmentsChange: (segments: TranscriptSegment[]) => void;
 };
@@ -26,6 +27,7 @@ function autoResize(element: HTMLTextAreaElement) {
 
 export function SpeakerSegmentEditor({
   autoFocusMode = "edit",
+  highlightedSegmentId = null,
   segments,
   onSegmentsChange,
 }: SpeakerSegmentEditorProps) {
@@ -43,7 +45,7 @@ export function SpeakerSegmentEditor({
     if (autoFocusMode !== "append") {
       return;
     }
-    const target = [...segments].reverse().find((segment) => segment.text.trim());
+    const target = segments[segments.length - 1];
     if (!target) {
       return;
     }
@@ -93,7 +95,14 @@ export function SpeakerSegmentEditor({
             <div className="rs-eyebrow speaker-column-header">{speakerLabel(speaker)}</div>
             <div className="speaker-segment-list">
               {speakerSegments.map((segment) => (
-                <div key={segment.id} className="segment-row">
+                <div
+                  key={segment.id}
+                  className={
+                    segment.id === highlightedSegmentId
+                      ? "segment-row segment-row-appended"
+                      : "segment-row"
+                  }
+                >
                   <input
                     aria-label={`${speakerLabel(speaker)}时间戳`}
                     className="segment-timestamp"

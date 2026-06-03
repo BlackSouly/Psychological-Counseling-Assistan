@@ -7,6 +7,7 @@ type PlainTextEditorProps = {
   autoFocusMode?: "edit" | "append";
   clientCode: string | null;
   detectedSegments: TranscriptSegment[];
+  highlightAppend?: boolean;
   plainText: string;
   showDetectionBanner: boolean;
   onDismissDetection: () => void;
@@ -24,6 +25,7 @@ export function PlainTextEditor({
   autoFocusMode = "edit",
   clientCode,
   detectedSegments,
+  highlightAppend = false,
   plainText,
   showDetectionBanner,
   onDismissDetection,
@@ -84,7 +86,7 @@ export function PlainTextEditor({
       <textarea
         ref={textareaRef}
         aria-label="会谈文本"
-        className="editor"
+        className={highlightAppend ? "editor editor-append-highlight" : "editor"}
         placeholder="输入本次会谈中的核心表达、关键片段或整理后的文本记录。"
         value={plainText}
         onChange={(event) => {

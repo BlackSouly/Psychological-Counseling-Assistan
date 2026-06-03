@@ -30,13 +30,23 @@ export interface PinnedQuote {
 
 export type InputMode = "split" | "plain";
 
+export interface SubmittedTranscriptEntry {
+  entryId: string;
+  inputMode: InputMode;
+  segments: TranscriptSegment[];
+  submittedAt: string;
+  sessionId?: string;
+}
+
 export interface SessionTextState {
   sessionId: string;
   inputMode: InputMode;
   segments: TranscriptSegment[];
   plainText: string;
+  timelineEntries: SubmittedTranscriptEntry[];
   annotations: Annotation[];
   pinnedQuotes: PinnedQuote[];
+  editingEntryId?: string;
   lastSavedAt?: string;
   analysisSubmittedAt?: string;
 }

@@ -95,7 +95,12 @@ describe("client delete workflow", () => {
     await userEvent.click(screen.getByRole("button", { name: "删除来访者" }));
 
     expect(window.confirm).toHaveBeenCalled();
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      "/api/clients/client_001",
+      expect.objectContaining({
+        method: "DELETE",
+      }),
+    );
     expect(screen.getByRole("button", { name: /来访者001/ })).toBeInTheDocument();
   });
 });

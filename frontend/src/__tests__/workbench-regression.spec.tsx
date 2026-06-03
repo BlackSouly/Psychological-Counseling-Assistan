@@ -22,6 +22,7 @@ function createSessionRecord(overrides: Partial<SessionRecord> = {}): SessionRec
     session_id: "session_001",
     client_code: "client_101",
     created_at: "2026-05-08T10:00:00Z",
+    updated_at: "2026-05-08T10:00:00Z",
     source_text: "我今天又搞砸了，反正也没人在乎。",
     analysis: {
       emotion_labels: ["羞耻", "沮丧"],
@@ -53,6 +54,7 @@ function createSessionRecord(overrides: Partial<SessionRecord> = {}): SessionRec
 const sessionSummary: SessionSummary = {
   session_id: "session_001",
   created_at: "2026-05-08T10:00:00Z",
+  updated_at: "2026-05-08T10:00:00Z",
   source_text: "我今天又搞砸了，反正也没人在乎。",
   emotion_labels: ["羞耻"],
   intensity: "high",
@@ -68,17 +70,17 @@ function jsonResponse(body: unknown, status = 200): Response {
   });
 }
 
-async function renderWithLatestSession() {
+async function renderWithLatestSession(record = createSessionRecord(), waitForText = "核心观察") {
   fetchMock.mockResolvedValueOnce(
     jsonResponse([{ client_code: "client_101", alias: "Demo Client 101", status: "需风险复核" }]),
   );
   fetchMock.mockResolvedValueOnce(jsonResponse([sessionSummary]));
-  fetchMock.mockResolvedValueOnce(jsonResponse(createSessionRecord()));
+  fetchMock.mockResolvedValueOnce(jsonResponse(record));
 
   render(<App />);
 
   await waitFor(() => {
-    expect(screen.getByText("核心观察")).toBeInTheDocument();
+    expect(screen.getByText(waitForText)).toBeInTheDocument();
   });
 }
 
@@ -131,15 +133,105 @@ describe("workbench regression coverage", () => {
       const calls = fetchMock.mock.calls;
       const lastCall = calls[calls.length - 1];
       expect(lastCall?.[0]).toBe("/api/sessions/session_001/worksheet");
-      expect(lastCall?.[1]).toEqual(
-        expect.objectContaining({
-          method: "PATCH",
-          body: JSON.stringify(savedWorksheet),
-        }),
-      );
+      expect(lastCall?.[1]).toEqual(expect.objectContaining({ method: "PATCH" }));
+      const payload = JSON.parse(String(lastCall?.[1]?.body ?? "{}"));
+      expect(payload).toMatchObject({
+        belief: savedWorksheet.belief,
+        consequence: savedWorksheet.consequence,
+        dispute: savedWorksheet.dispute,
+        effective_belief: savedWorksheet.effective_belief,
+        homework: savedWorksheet.homework,
+        follow_up: savedWorksheet.follow_up,
+      });
+      expect(payload.activating_event).toContain(savedWorksheet.activating_event);
     });
 
     expect(screen.getByText("REBT 工作纸已保存到当前会谈记录。")).toBeInTheDocument();
+  });
+
+  it("renders line-by-line REBT interpretation and uses the worksheet draft", async () => {
+    const worksheetDraft = {
+      activating_event: "来访者说今天又搞砸了。",
+      belief: "一次失败说明我整体不行。",
+      consequence: "羞耻、沮丧，并倾向于放弃求助。",
+      dispute: "一次失败是否足以证明整个人没有价值？",
+      effective_belief: "我这次表现不理想，但这不等于我整个人失败。",
+      homework: "记录一次失败事件，并写出行为评价与自我评价的区别。",
+      follow_up: "下次复盘新信念是否降低羞耻强度。",
+    };
+
+    await renderWithLatestSession(
+      createSessionRecord({
+        rebt_plan: {
+          line_interpretations: [
+            {
+              source_quote: "我今天又搞砸了",
+              rebt_step: "A/B 链条",
+              activating_event: "来访者报告一次失败体验。",
+              belief: "把一次失败扩大为整体失败。",
+              consequence: "羞耻和自我否定升高。",
+              dispute_direction: "区分具体行为失误与整体自我价值。",
+              intervention_question: "这次搞砸具体指哪一件事？",
+              risk_note: "关注是否伴随放弃或自我忽视。",
+            },
+          ],
+          items: [
+            {
+              title: "D 辩论：区分行为与自我",
+              detail: "围绕原句追问具体失败事件，并检验是否能推出整体自我否定。",
+              source_quote: "我今天又搞砸了",
+            },
+          ],
+          worksheet_draft: worksheetDraft,
+        },
+      }),
+    );
+
+    expect(screen.getByText("关键句逐句解读")).toBeInTheDocument();
+    expect(screen.getByText("重点")).toBeInTheDocument();
+    expect(screen.getByText("环节 · A/B 链条")).toBeInTheDocument();
+    expect(screen.getByText("信念靶点")).toBeInTheDocument();
+    expect(screen.getByText("后果证据")).toBeInTheDocument();
+    expect(screen.getByText("可辩论")).toBeInTheDocument();
+    expect(screen.getAllByText("需复核").length).toBeGreaterThan(0);
+    expect(screen.getByText("A/B 链条")).toBeInTheDocument();
+    expect(screen.getAllByText("“我今天又搞砸了”").length).toBeGreaterThan(0);
+    expect(screen.getByText("D 辩论：区分行为与自我")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByLabelText("A 触发事件")).toHaveValue(worksheetDraft.activating_event);
+      expect(screen.getByLabelText("B 信念/解释")).toHaveValue(worksheetDraft.belief);
+      expect(screen.getByLabelText("D 反驳问题")).toHaveValue(worksheetDraft.dispute);
+      expect(screen.getByLabelText("家庭练习")).toHaveValue(worksheetDraft.homework);
+    });
+    expect(screen.getByText("来自逐句解读 · A 触发事件")).toBeInTheDocument();
+    expect(screen.getByText("来自逐句解读 · B 信念靶点")).toBeInTheDocument();
+    expect(screen.getByText("来自逐句解读 · C 后果证据")).toBeInTheDocument();
+    expect(screen.getByText("来自逐句解读 · D 辩论方向")).toBeInTheDocument();
+    expect(screen.getByText("来自工作纸草案 · E 新信念")).toBeInTheDocument();
+    expect(screen.getByText("来自工作纸草案 · 家庭练习")).toBeInTheDocument();
+    expect(screen.getByText("来自工作纸草案 · 下次追踪")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "来自逐句解读 · B 信念靶点" }));
+    expect(document.getElementById("line-rebt-card-0")).toHaveClass("line-rebt-card-highlight");
+  });
+
+  it("renders the new REBT conceptualization as layered sections", async () => {
+    await renderWithLatestSession(
+      createSessionRecord({
+        interpretation:
+          "一、核心概念化\n来访者把一次工作失误等同于自我价值失败。\n二、维持机制\n反复自责和回避让羞耻感继续升高。\n三、风险与边界\n需要先复核功能受损和安全风险，再进入信念挑战。\n四、干预优先级\n先稳定情绪，再澄清 A-B-C，随后进入 D/E。",
+      }),
+      "核心概念化",
+    );
+
+    expect(screen.getByText("FORMULATION")).toBeInTheDocument();
+    expect(screen.getByText("MAINTENANCE")).toBeInTheDocument();
+    expect(screen.getByText("BOUNDARY")).toBeInTheDocument();
+    expect(screen.getByText("SEQUENCE")).toBeInTheDocument();
+    expect(screen.getByText("核心概念化").closest(".rebt-layer-card")).not.toBeNull();
+    expect(screen.getByText("维持机制").closest(".rebt-layer-card")).not.toBeNull();
+    expect(screen.getByText("风险与边界").closest(".rebt-layer-card")).not.toBeNull();
+    expect(screen.getByText("干预优先级").closest(".rebt-layer-card")).not.toBeNull();
   });
 
   it("keeps the breadcrumb aligned with the case overview tab", async () => {
@@ -183,6 +275,46 @@ describe("workbench regression coverage", () => {
         }),
       );
     });
+
+    await waitFor(() => {
+      expect(screen.getByText("澄清失控预期")).toBeInTheDocument();
+    });
+  });
+
+  it("shows progress copy while regenerating detailed REBT content", async () => {
+    let resolveRegeneration!: (value: Response) => void;
+
+    await renderWithLatestSession();
+
+    fetchMock.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveRegeneration = resolve;
+        }),
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: "重新生成" }));
+
+    expect(
+      screen.getByText("正在重新生成逐句 REBT 解读、干预建议和工作纸草案，可能需要 1-2 分钟。"),
+    ).toBeInTheDocument();
+
+    resolveRegeneration(
+      jsonResponse(
+        createSessionRecord({
+          interpretation: "一、核心观察\n这是新的结构化解读。",
+          rebt_plan: {
+            items: [
+              {
+                title: "澄清失控预期",
+                detail: "围绕原句追问证据与可控部分。",
+                source_quote: "事情会失控",
+              },
+            ],
+          },
+        }),
+      ),
+    );
 
     await waitFor(() => {
       expect(screen.getByText("澄清失控预期")).toBeInTheDocument();

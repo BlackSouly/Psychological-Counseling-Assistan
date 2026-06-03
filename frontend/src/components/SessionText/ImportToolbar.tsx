@@ -39,19 +39,15 @@ export function ImportToolbar({
         </button>
       </div>
       <div className="import-toolbar-right">
-        <FileImportButton
-          disabled={disabled}
-          onError={onImportError}
-          onImportedText={onImportedText}
-        />
+        <FileImportButton disabled={disabled} onError={onImportError} onImportedText={onImportedText} />
         <button
-          aria-label={disabled ? "分析中..." : "开始分析"}
+          aria-label={disabled ? "生成分析中..." : "开始分析"}
           className="btn primary"
           disabled={!canSubmit || disabled}
           onClick={onSubmit}
           type="button"
         >
-          {disabled ? "分析中..." : "提交分析"}
+          {disabled ? "生成中..." : "提交分析"}
         </button>
       </div>
     </div>

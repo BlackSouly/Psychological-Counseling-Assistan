@@ -6,7 +6,13 @@ from typing import Annotated
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
 
-from app.models.session import AnalyzeSessionRequest, AnnotationFeedback, RebtWorksheet, SessionRecord
+from app.models.session import (
+    AnalyzeSessionRequest,
+    AnnotationFeedback,
+    RebtWorksheet,
+    SessionRecord,
+    utc_timestamp,
+)
 from app.services.analysis import StructuredAnalyzer
 from app.services.interpretation import RebtInterpreter
 from app.services.risk import RiskScreeningService
@@ -32,12 +38,20 @@ SessionServicesDep = Annotated[SessionServices, Depends(get_session_services)]
 
 def translate_session_runtime_error(exc: RuntimeError) -> str:
     message = str(exc)
-    if "expected JSON schema" in message:
+    if message == "Analysis response did not match the expected JSON schema.":
+        return "模型返回的结构化分析结果不完整，请重试生成。"
+    if message == "Analysis response was truncated by the model token limit.":
+        return "模型输出被截断，未能生成完整的结构化分析结果，请重试。"
+    if message == "Analysis response did not contain displayable text.":
+        return "模型没有返回可解析的结构化分析结果，请重试。"
+    if message == "Interpretation response did not match the expected JSON schema.":
         return "模型返回的 REBT 结构化结果不完整，请重试生成。"
-    if "truncated by the model token limit" in message:
+    if message == "Interpretation response was truncated by the model token limit.":
         return "模型输出被截断，未能生成完整的 REBT 结构化结果，请重试。"
-    if "did not contain displayable text" in message:
+    if message == "Interpretation response did not contain displayable text.":
         return "模型没有返回可解析的 REBT 结果，请重试。"
+    if message == "Interpretation response did not match the required REBT interpretation structure.":
+        return "模型返回的 REBT 解读结构不符合四段式要求，请重新生成。"
     return message
 
 
@@ -111,6 +125,7 @@ def regenerate_rebt_plan(session_id: str, services: SessionServicesDep) -> Sessi
         update={
             "interpretation": interpretation_result.interpretation,
             "rebt_plan": interpretation_result.rebt_plan,
+            "updated_at": utc_timestamp(),
         }
     )
     services.storage.save_session(updated)
@@ -128,7 +143,7 @@ def update_feedback(
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
-    updated = session.model_copy(update={"feedback": payload})
+    updated = session.model_copy(update={"feedback": payload, "updated_at": utc_timestamp()})
     services.storage.save_session(updated)
     return updated
 
@@ -144,6 +159,6 @@ def update_worksheet(
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
-    updated = session.model_copy(update={"rebt_worksheet": payload})
+    updated = session.model_copy(update={"rebt_worksheet": payload, "updated_at": utc_timestamp()})
     services.storage.save_session(updated)
     return updated

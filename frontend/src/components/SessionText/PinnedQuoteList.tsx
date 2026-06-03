@@ -30,14 +30,20 @@ export function PinnedQuoteList({ pinnedQuotes, onUnpin }: PinnedQuoteListProps)
   return (
     <section className="rs-body pinned-quote-list">
       <div className="rs-head pinned-quote-head">
-        <div className="rs-eyebrow">PINNED QUOTES</div>
-        <div className="rs-title">关键句</div>
+        <div>
+          <div className="rs-eyebrow">PINNED QUOTES</div>
+          <div className="rs-title">关键句</div>
+        </div>
         <span className="pill accent">{pinnedQuotes.length}</span>
       </div>
       <ul className="insight-list pinned-quote-items">
         {pinnedQuotes.map((quote) => (
           <li key={quote.id} className="pinned-quote-row">
-            <span className={quote.speaker === "client" ? "pill warn speaker-badge" : "pill muted speaker-badge"}>
+            <span
+              className={
+                quote.speaker === "client" ? "pill warn speaker-badge" : "pill muted speaker-badge"
+              }
+            >
               {quote.speaker === "client" ? "来" : "咨"}
             </span>
             <button

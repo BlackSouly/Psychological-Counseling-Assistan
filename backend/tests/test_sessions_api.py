@@ -141,6 +141,7 @@ def test_feedback_patch_updates_notes_rating_colors_and_disagreements(tmp_path) 
     assert body["feedback"]["notes_color"] == "red"
     assert body["feedback"]["disagreement_colors"]["cognitive_patterns"] == "blue"
     assert body["analysis"] == session["analysis"]
+    assert body["updated_at"] >= session["updated_at"]
 
 
 def test_worksheet_patch_persists_rebt_workflow_fields(tmp_path) -> None:
@@ -178,6 +179,7 @@ def test_worksheet_patch_persists_rebt_workflow_fields(tmp_path) -> None:
 
     assert response.status_code == 200
     assert response.json()["rebt_worksheet"] == worksheet
+    assert response.json()["updated_at"] >= session["updated_at"]
 
     detail = client.get(f"/api/sessions/{session['session_id']}")
     assert detail.status_code == 200

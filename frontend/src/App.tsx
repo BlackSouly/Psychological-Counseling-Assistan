@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
+  ApiError,
   analyzeSession,
   createClient,
   deleteClient,
@@ -19,6 +20,7 @@ import { FeedbackPanel } from "./components/FeedbackPanel";
 import { SessionTextPanel } from "./components/SessionText/SessionTextPanel";
 import { TimelinePanel } from "./components/TimelinePanel";
 import type { PinnedQuote } from "./components/SessionText/sessionText.types";
+import { clientDisplayBadge, clientDisplayName } from "./clientDisplay";
 import type {
   ClientProfile,
   ClientStatus,
@@ -30,6 +32,66 @@ import type {
 
 type WorkbenchTab = "input" | "analysis" | "feedback" | "overview";
 type InspectorTab = "feedback" | "timeline" | "supervise" | "plan";
+const ACTIVE_CLIENT_STORAGE_KEY = "workbench:active-client-code";
+
+function formatErrorMessage(error: unknown, fallbackMessage: string): string {
+  if (error instanceof ApiError) {
+    if (error.status === null) {
+      return error.message;
+    }
+    if (error.status === 502) {
+      return `上游模型服务异常：${error.message}`;
+    }
+    if (error.status === 503) {
+      return `服务暂时不可用：${error.message}`;
+    }
+    if (error.status === 409) {
+      return `当前记录状态不满足操作条件：${error.message}`;
+    }
+    if (error.status === 404) {
+      return `未找到对应记录：${error.message}`;
+    }
+    if (error.status >= 500) {
+      return `后端服务异常（${error.status}）：${error.message}`;
+    }
+    return error.message;
+  }
+
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  return fallbackMessage;
+}
+
+function useLongTaskMessage(isRunning: boolean, messages: string[]): string | null {
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+
+  useEffect(() => {
+    if (!isRunning) {
+      setElapsedSeconds(0);
+      return;
+    }
+
+    setElapsedSeconds(0);
+    const startedAt = Date.now();
+    const timer = window.setInterval(() => {
+      setElapsedSeconds(Math.floor((Date.now() - startedAt) / 1000));
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [isRunning]);
+
+  if (!isRunning) {
+    return null;
+  }
+  if (elapsedSeconds >= 60) {
+    return messages[2] ?? messages[messages.length - 1] ?? null;
+  }
+  if (elapsedSeconds >= 20) {
+    return messages[1] ?? messages[0] ?? null;
+  }
+  return messages[0] ?? null;
+}
 
 const WORKBENCH_TAB_LABELS: Record<WorkbenchTab, string> = {
   input: "会谈文本",
@@ -76,9 +138,29 @@ const PLAN_ITEMS = [
   },
 ];
 
+function loadPersistedActiveClientCode(): string | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+  return window.localStorage.getItem(ACTIVE_CLIENT_STORAGE_KEY);
+}
+
+function persistActiveClientCode(clientCode: string | null): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+  if (clientCode) {
+    window.localStorage.setItem(ACTIVE_CLIENT_STORAGE_KEY, clientCode);
+    return;
+  }
+  window.localStorage.removeItem(ACTIVE_CLIENT_STORAGE_KEY);
+}
+
 export default function App() {
   const [clients, setClients] = useState<ClientProfile[]>([]);
-  const [activeClientCode, setActiveClientCode] = useState<string | null>(null);
+  const [activeClientCode, setActiveClientCode] = useState<string | null>(() =>
+    loadPersistedActiveClientCode(),
+  );
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [result, setResult] = useState<SessionRecord | null>(null);
   const [isLoadingClients, setIsLoadingClients] = useState(true);
@@ -102,6 +184,17 @@ export default function App() {
   const [sessionPinnedQuotes, setSessionPinnedQuotes] = useState<PinnedQuote[]>([]);
   const topSearchInputRef = useRef<HTMLInputElement>(null);
 
+  const analysisProgressMessage = useLongTaskMessage(isAnalyzing, [
+    "正在生成结构化分析、逐句 REBT 解读和工作纸草案，可能需要 1-2 分钟。",
+    "内容仍在生成中，长会谈文本需要更多时间，请保持当前页面打开。",
+    "模型仍在返回逐句 REBT 结果；如果稍后失败，页面会显示具体原因。",
+  ]);
+  const rebtPlanProgressMessage = useLongTaskMessage(isRegeneratingRebtPlan, [
+    "正在重新生成逐句 REBT 解读、干预建议和工作纸草案，可能需要 1-2 分钟。",
+    "仍在等待模型返回细化 REBT 内容，请保持当前页面打开。",
+    "长文本 REBT 生成仍在进行；如果超时或输出不完整，系统会显示错误原因。",
+  ]);
+
   const activeClient = clients.find((client) => client.client_code === activeClientCode) ?? null;
 
   const activeSessionBadge = useMemo(() => {
@@ -113,6 +206,22 @@ export default function App() {
       return "当前会话";
     }
     return `会话 ${String(sessionIndex + 1).padStart(2, "0")}`;
+  }, [result, sessions]);
+
+  const activeSubmissionLabel = useMemo(() => {
+    if (!result) {
+      return null;
+    }
+    const chronologicalSessions = [...sessions].sort((left, right) =>
+      left.created_at.localeCompare(right.created_at),
+    );
+    const submissionIndex = chronologicalSessions.findIndex(
+      (session) => session.session_id === result.session_id,
+    );
+    if (submissionIndex === -1) {
+      return null;
+    }
+    return `第 ${submissionIndex + 1} 次提交`;
   }, [result, sessions]);
 
   const searchedClients = useMemo(() => {
@@ -150,6 +259,10 @@ export default function App() {
   useEffect(() => {
     void loadClients();
   }, []);
+
+  useEffect(() => {
+    persistActiveClientCode(activeClientCode);
+  }, [activeClientCode]);
 
   useEffect(() => {
     function handleShortcut(event: KeyboardEvent) {
@@ -193,7 +306,7 @@ export default function App() {
         setInspectorTab("feedback");
       } catch (error) {
         if (isCurrentClient) {
-          setErrorMessage(error instanceof Error ? error.message : "读取记录详情失败。");
+          setErrorMessage(formatErrorMessage(error, "读取记录详情失败。"));
         }
       }
     })();
@@ -209,9 +322,15 @@ export default function App() {
     try {
       const nextClients = await fetchClients();
       setClients(nextClients);
-      setActiveClientCode((current) => current ?? nextClients[0]?.client_code ?? null);
+      setActiveClientCode((current) => {
+        const preferredCode = current ?? loadPersistedActiveClientCode();
+        if (preferredCode && nextClients.some((client) => client.client_code === preferredCode)) {
+          return preferredCode;
+        }
+        return nextClients[0]?.client_code ?? null;
+      });
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "加载来访者列表失败。");
+      setErrorMessage(formatErrorMessage(error, "加载来访者列表失败。"));
     } finally {
       setIsLoadingClients(false);
     }
@@ -223,7 +342,7 @@ export default function App() {
       setSessions(nextSessions);
       return nextSessions;
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "加载历史记录失败。");
+      setErrorMessage(formatErrorMessage(error, "加载历史记录失败。"));
       return [];
     }
   }
@@ -240,7 +359,7 @@ export default function App() {
       setStatusMessage(`已创建来访者“${createdClient.alias}”。`);
     } catch (error) {
       setStatusMessage(null);
-      setErrorMessage(error instanceof Error ? error.message : "创建来访者失败。");
+      setErrorMessage(formatErrorMessage(error, "创建来访者失败。"));
     } finally {
       setIsCreatingClient(false);
     }
@@ -248,7 +367,7 @@ export default function App() {
 
   async function handleAnalyze(sourceText: string) {
     if (!activeClientCode || isAnalyzing) {
-      return;
+      return undefined;
     }
 
     try {
@@ -265,7 +384,7 @@ export default function App() {
       setStatusMessage("分析已完成，结构化结果已更新。");
     } catch (error) {
       setStatusMessage(null);
-      setErrorMessage(error instanceof Error ? error.message : "分析文本失败。");
+      setErrorMessage(formatErrorMessage(error, "分析文本失败。"));
     } finally {
       setIsAnalyzing(false);
     }
@@ -289,7 +408,7 @@ export default function App() {
       setStatusMessage(`已更新来访者“${updatedClient.alias}”的处理状态。`);
     } catch (error) {
       setStatusMessage(null);
-      setErrorMessage(error instanceof Error ? error.message : "更新来访者处理状态失败。");
+      setErrorMessage(formatErrorMessage(error, "更新来访者处理状态失败。"));
     }
   }
 
@@ -330,7 +449,7 @@ export default function App() {
       setStatusMessage(`已删除来访者“${deletedClient.alias}”。`);
     } catch (error) {
       setStatusMessage(null);
-      setErrorMessage(error instanceof Error ? error.message : "删除来访者失败。");
+      setErrorMessage(formatErrorMessage(error, "删除来访者失败。"));
     }
   }
 
@@ -343,7 +462,7 @@ export default function App() {
       setWorkbenchTab("analysis");
       setInspectorTab("feedback");
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "读取记录详情失败。");
+      setErrorMessage(formatErrorMessage(error, "读取记录详情失败。"));
     }
   }
 
@@ -357,7 +476,7 @@ export default function App() {
       setStatusMessage("专业反馈已保存。");
     } catch (error) {
       setStatusMessage(null);
-      setErrorMessage(error instanceof Error ? error.message : "保存反馈失败。");
+      setErrorMessage(formatErrorMessage(error, "保存反馈失败。"));
     } finally {
       setIsSavingFeedback(false);
     }
@@ -374,7 +493,7 @@ export default function App() {
     } catch (error) {
       setWorksheetStatusMessage(null);
       setWorksheetErrorMessage(
-        error instanceof Error ? error.message : "保存 REBT 工作纸失败，请检查当前内容后重试。",
+        formatErrorMessage(error, "保存 REBT 工作纸失败，请检查当前内容后重试。"),
       );
     } finally {
       setIsSavingWorksheet(false);
@@ -393,7 +512,7 @@ export default function App() {
     } catch (error) {
       setRebtPlanStatusMessage(null);
       setRebtPlanErrorMessage(
-        error instanceof Error ? error.message : "补生成 REBT 干预建议失败，请稍后重试。",
+        formatErrorMessage(error, "补生成 REBT 干预建议失败，请稍后重试。"),
       );
     } finally {
       setIsRegeneratingRebtPlan(false);
@@ -406,9 +525,17 @@ export default function App() {
         <>
           <SessionTextPanel
             clientCode={activeClientCode}
+            currentAnalysisLabel={activeSessionBadge}
+            currentAnalysisSessionId={result?.session_id}
+            currentAnalyzedText={result?.source_text}
             isAnalyzing={isAnalyzing}
             onAnalyze={handleAnalyze}
             onPinnedQuotesChange={setSessionPinnedQuotes}
+            onSelectTimelineEntry={handleSelectSession}
+            timelineSessionCandidates={sessions}
+            seedSessionId={result?.session_id}
+            seedSourceText={result?.source_text}
+            seedSubmittedAt={result?.created_at}
           />
           <div className="disclaim">
             <span className="dot">!</span>
@@ -444,11 +571,12 @@ export default function App() {
     }
 
     if (workbenchTab === "overview") {
-      return <CaseOverviewPanel client={activeClient} sessions={sessions} />;
+      return <CaseOverviewPanel client={activeClient} sessions={sessions} onSelectSession={handleSelectSession} />;
     }
 
     return (
       <AnalysisResultPanel
+        currentSubmissionLabel={activeSubmissionLabel}
         isRegeneratingRebtPlan={isRegeneratingRebtPlan}
         isSavingFeedback={isSavingFeedback}
         isSavingWorksheet={isSavingWorksheet}
@@ -457,7 +585,7 @@ export default function App() {
         onSaveWorksheet={handleSaveWorksheet}
         pinnedQuotes={sessionPinnedQuotes}
         rebtPlanErrorMessage={rebtPlanErrorMessage}
-        rebtPlanStatusMessage={rebtPlanStatusMessage}
+        rebtPlanStatusMessage={rebtPlanProgressMessage ?? rebtPlanStatusMessage}
         result={result}
         showFeedback={false}
         worksheetErrorMessage={worksheetErrorMessage}
@@ -466,9 +594,8 @@ export default function App() {
     );
   }
 
-  const clientIndexSuffix = activeClient
-    ? activeClient.client_code.replace("client_", "")
-    : "";
+  const activeClientDisplayName = activeClient ? clientDisplayName(activeClient) : "";
+  const clientIndexSuffix = activeClient ? clientDisplayBadge(activeClient) : "";
 
   return (
     <div className="app" data-theme={theme}>
@@ -609,7 +736,7 @@ export default function App() {
                 <div className="row gap-sm">
                   <div className="banner-av">{clientIndexSuffix}</div>
                   <div className="banner-info">
-                    <div className="banner-name">编号档案 · {clientIndexSuffix}</div>
+                    <div className="banner-name">{activeClientDisplayName}</div>
                     <div className="banner-meta">
                       {activeClient.client_code} · {sessions.length} 次会谈 · 状态：{activeClient.status}
                     </div>
@@ -649,6 +776,11 @@ export default function App() {
             {statusMessage ? (
               <p className="status-banner fade-in" role="status">
                 {statusMessage}
+              </p>
+            ) : null}
+            {analysisProgressMessage ? (
+              <p className="status-banner fade-in" role="status">
+                {analysisProgressMessage}
               </p>
             ) : null}
             {errorMessage ? <p className="error-banner fade-in">{errorMessage}</p> : null}
