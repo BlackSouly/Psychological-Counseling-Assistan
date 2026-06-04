@@ -14,6 +14,16 @@ export type UpdateClientStatusPayload = {
   status: ClientStatus;
 };
 
+export type AppHealth = {
+  status: string;
+  ai_provider: {
+    base_url: string;
+    model: string;
+    api_key_configured: boolean;
+    uses_default_services: boolean;
+  };
+};
+
 export type SessionSummary = {
   session_id: string;
   created_at: string;
@@ -24,6 +34,7 @@ export type SessionSummary = {
   cognitive_patterns: string[];
   risk_level: string;
   has_rebt_worksheet: boolean;
+  rebt_formulation?: SessionRebtFormulation;
 };
 
 export type StructuredAnalysis = {
@@ -49,6 +60,16 @@ export type AnnotationFeedback = {
   rating: number | null;
   disagreements: Record<string, string>;
   disagreement_colors: Record<string, FeedbackColor>;
+  history?: FeedbackHistoryEntry[];
+};
+
+export type FeedbackHistoryEntry = {
+  saved_at: string;
+  notes: string;
+  notes_color: FeedbackColor;
+  rating: number | null;
+  disagreements: Record<string, string>;
+  disagreement_colors: Record<string, FeedbackColor>;
 };
 
 export type RebtWorksheet = {
@@ -59,6 +80,15 @@ export type RebtWorksheet = {
   effective_belief: string;
   homework: string;
   follow_up: string;
+};
+
+export type SessionRebtFormulation = {
+  activating_events: string[];
+  beliefs: string[];
+  consequences: string[];
+  disputes: string[];
+  effective_beliefs: string[];
+  interventions: string[];
 };
 
 export type RebtPlanItem = {

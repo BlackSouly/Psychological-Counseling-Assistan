@@ -7,6 +7,7 @@ import {
   deleteClient,
   fetchClients,
   fetchClientSessions,
+  fetchHealth,
   fetchSession,
   regenerateSessionRebtPlan,
   updateClientStatus,
@@ -25,6 +26,7 @@ import type {
   ClientProfile,
   ClientStatus,
   CreateClientPayload,
+  AppHealth,
   RebtWorksheet,
   SessionRecord,
   SessionSummary,
@@ -178,6 +180,10 @@ export default function App() {
   const [workbenchTab, setWorkbenchTab] = useState<WorkbenchTab>("input");
   const [inspectorTab, setInspectorTab] = useState<InspectorTab>("feedback");
   const [theme, setTheme] = useState<"light" | "dark">("light");
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [health, setHealth] = useState<AppHealth | null>(null);
+  const [isLoadingHealth, setIsLoadingHealth] = useState(false);
+  const [healthErrorMessage, setHealthErrorMessage] = useState<string | null>(null);
   const [clientSearchDraft, setClientSearchDraft] = useState("");
   const [clientSearchQuery, setClientSearchQuery] = useState("");
   const [clientSearchResetSignal, setClientSearchResetSignal] = useState(0);
@@ -254,6 +260,24 @@ export default function App() {
     setRebtPlanErrorMessage(null);
     setWorksheetStatusMessage(null);
     setWorksheetErrorMessage(null);
+  }
+
+  async function loadHealth() {
+    try {
+      setIsLoadingHealth(true);
+      setHealthErrorMessage(null);
+      setHealth(await fetchHealth());
+    } catch (error) {
+      setHealth(null);
+      setHealthErrorMessage(formatErrorMessage(error, "读取系统状态失败。"));
+    } finally {
+      setIsLoadingHealth(false);
+    }
+  }
+
+  function handleOpenSettings() {
+    setIsSettingsOpen(true);
+    void loadHealth();
   }
 
   useEffect(() => {
@@ -660,11 +684,56 @@ export default function App() {
           >
             {theme === "dark" ? "☀" : "☾"}
           </button>
-          <button aria-label="设置" className="icon-btn" type="button">
+          <button aria-label="设置" className="icon-btn" onClick={handleOpenSettings} type="button">
             ⚙
           </button>
         </div>
       </header>
+
+      {isSettingsOpen ? (
+        <div className="settings-backdrop" role="presentation" onMouseDown={() => setIsSettingsOpen(false)}>
+          <section
+            aria-label="系统设置"
+            className="settings-modal"
+            role="dialog"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <div className="settings-head">
+              <div>
+                <div className="rs-eyebrow">SYSTEM</div>
+                <div className="settings-title">系统状态与模型设置</div>
+              </div>
+              <button aria-label="关闭设置" className="icon-btn" onClick={() => setIsSettingsOpen(false)} type="button">
+                ×
+              </button>
+            </div>
+
+            <div className="settings-grid">
+              <article className="settings-card">
+                <span>后端服务</span>
+                <strong>{health?.status === "ok" ? "已连接" : isLoadingHealth ? "检查中" : "未连接"}</strong>
+                <p>{healthErrorMessage ?? "本地 API 服务用于档案、会谈记录与分析结果保存。"}</p>
+              </article>
+              <article className="settings-card">
+                <span>模型</span>
+                <strong>{health?.ai_provider.model ?? "未知"}</strong>
+                <p>{health?.ai_provider.base_url ?? "尚未读取模型服务地址。"}</p>
+              </article>
+              <article className="settings-card">
+                <span>API Key</span>
+                <strong>{health?.ai_provider.api_key_configured ? "已配置" : "未配置"}</strong>
+                <p>{health?.ai_provider.uses_default_services ? "当前使用真实模型服务。" : "当前使用测试/注入服务。"}</p>
+              </article>
+            </div>
+
+            <div className="settings-actions">
+              <button className="btn ghost sm" disabled={isLoadingHealth} onClick={() => void loadHealth()} type="button">
+                {isLoadingHealth ? "检查中..." : "重新检测"}
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
 
       <div className="panes">
         <div className="pane">

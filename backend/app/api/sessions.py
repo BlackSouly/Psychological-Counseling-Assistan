@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from app.models.session import (
     AnalyzeSessionRequest,
     AnnotationFeedback,
+    FeedbackHistoryEntry,
     RebtWorksheet,
     SessionRecord,
     utc_timestamp,
@@ -143,7 +144,17 @@ def update_feedback(
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
-    updated = session.model_copy(update={"feedback": payload, "updated_at": utc_timestamp()})
+    timestamp = utc_timestamp()
+    history_entry = FeedbackHistoryEntry(
+        saved_at=timestamp,
+        notes=payload.notes,
+        notes_color=payload.notes_color,
+        rating=payload.rating,
+        disagreements=payload.disagreements,
+        disagreement_colors=payload.disagreement_colors,
+    )
+    feedback = payload.model_copy(update={"history": [*session.feedback.history, history_entry]})
+    updated = session.model_copy(update={"feedback": feedback, "updated_at": timestamp})
     services.storage.save_session(updated)
     return updated
 

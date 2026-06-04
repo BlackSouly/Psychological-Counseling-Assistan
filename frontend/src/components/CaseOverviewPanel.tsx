@@ -1,4 +1,4 @@
-import type { ClientProfile, SessionSummary } from "../types";
+import type { ClientProfile, SessionRebtFormulation, SessionSummary } from "../types";
 import { clientDisplayName } from "../clientDisplay";
 
 type CaseOverviewPanelProps = {
@@ -132,6 +132,162 @@ function riskExcerpt(session: SessionSummary): string {
   return normalized.length > 72 ? `${normalized.slice(0, 72)}...` : normalized;
 }
 
+function formulationValues(sessions: SessionSummary[], key: keyof SessionRebtFormulation): string[] {
+  return sessions.flatMap((session) => session.rebt_formulation?.[key] ?? []);
+}
+
+function formatFullDate(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(
+    date.getDate(),
+  ).padStart(2, "0")} ${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+}
+
+function markdownText(value: string | null | undefined): string {
+  return value?.trim() || "未提供";
+}
+
+function markdownList(items: string[]): string {
+  return items.length > 0 ? items.map((item) => `- ${item}`).join("\n") : "- 未提供";
+}
+
+function markdownSection(title: string, body: string): string {
+  return `## ${title}\n\n${body.trim() || "未提供"}`;
+}
+
+function buildCountList(items: Array<{ label: string; count: number }>): string[] {
+  return items.map((item) => `${item.label} · ${item.count}`);
+}
+
+function sanitizeExportFileName(fileName: string): string {
+  return fileName.replace(/[<>:"/\\|?*\u0000-\u001F]/g, "").replace(/\s+/g, "").slice(0, 120);
+}
+
+export function buildCaseOverviewExportFileName(client: ClientProfile): string {
+  return `${sanitizeExportFileName(`${clientDisplayName(client)}个案报告`)}.md`;
+}
+
+export function buildCaseOverviewMarkdown(client: ClientProfile, sessions: SessionSummary[]): string {
+  const riskSessions = sessions.filter((session) => session.risk_level !== "none");
+  const worksheetCount = sessions.filter((session) => session.has_rebt_worksheet).length;
+  const latestSession = sessions[0] ?? null;
+  const latestEmotion = latestSession ? firstLabel(latestSession.emotion_labels) : "暂无";
+  const latestCognition = latestSession ? firstLabel(latestSession.cognitive_patterns) : "暂无";
+  const latestRiskSession = riskSessions[0] ?? null;
+
+  const topEmotions = topItems(sessions.flatMap((session) => session.emotion_labels));
+  const topCognitions = topItems(sessions.flatMap((session) => session.cognitive_patterns));
+  const topActivatingEvents = topItems(formulationValues(sessions, "activating_events"), 3);
+  const topBeliefs = topItems(formulationValues(sessions, "beliefs"), 3);
+  const topConsequences = topItems(formulationValues(sessions, "consequences"), 3);
+  const topDisputes = topItems(formulationValues(sessions, "disputes"), 3);
+  const topEffectiveBeliefs = topItems(formulationValues(sessions, "effective_beliefs"), 3);
+  const topInterventions = topItems(formulationValues(sessions, "interventions"), 4);
+
+  const sections = [
+    "# 个案报告",
+    [
+      `- 来访者：${clientDisplayName(client)}`,
+      `- 内部编号：${client.client_code}`,
+      `- 当前状态：${client.status}`,
+      `- 会谈总数：${sessions.length}`,
+      `- 风险会谈：${riskSessions.length}`,
+      `- 工作纸完成：${worksheetCount}`,
+      `- 导出时间：${formatFullDate(new Date().toISOString())}`,
+    ].join("\n"),
+    markdownSection(
+      "概览判断",
+      markdownList([
+        intensityTrendLabel(sessions),
+        riskContinuityLabel(sessions),
+        worksheetCoverageLabel(sessions, worksheetCount),
+      ]),
+    ),
+    markdownSection(
+      "阶段性 REBT formulation",
+      [
+        `### A 触发事件\n${markdownList(buildCountList(topActivatingEvents))}`,
+        `### B 核心信念\n${markdownList(buildCountList(topBeliefs))}`,
+        `### C 情绪/行为后果\n${markdownList(buildCountList(topConsequences))}`,
+        `### D 辩论方向\n${markdownList(buildCountList(topDisputes))}`,
+        `### E 替代信念\n${markdownList(buildCountList(topEffectiveBeliefs))}`,
+        `### 已尝试干预\n${markdownList(buildCountList(topInterventions))}`,
+      ].join("\n\n"),
+    ),
+    markdownSection(
+      "风险轨迹",
+      [
+        `- 最近风险：${latestRiskSession ? localizeRiskLevel(latestRiskSession.risk_level) : "无"}`,
+        `- 最近风险日期：${latestRiskSession ? formatFullDate(latestRiskSession.created_at) : "未提供"}`,
+        `- 近 3 次：${riskWindowLabel(sessions, 3)}`,
+        `- 近 5 次：${riskWindowLabel(sessions, 5)}`,
+        "",
+        "### 风险会谈列表",
+        markdownList(
+          riskSessions.slice(0, 5).map(
+            (session) =>
+              `${formatFullDate(session.created_at)} · ${localizeRiskLevel(session.risk_level)} · ${riskExcerpt(session)}`,
+          ),
+        ),
+      ].join("\n"),
+    ),
+    markdownSection(
+      "高频情绪与认知模式",
+      [
+        `### 情绪标签\n${markdownList(buildCountList(topEmotions))}`,
+        `### 认知模式\n${markdownList(buildCountList(topCognitions))}`,
+      ].join("\n\n"),
+    ),
+    markdownSection(
+      "下次会谈关注点",
+      markdownList([
+        `复盘最近一次会谈：${latestText(sessions)}`,
+        `最近一次主要情绪为「${latestEmotion}」，主要认知模式为「${latestCognition}」。`,
+        `高频模式可作为本阶段 REBT 工作纸的主要追踪对象，已完成工作纸 ${worksheetCount} / ${sessions.length} 次。`,
+        "若风险会谈持续出现，先完成风险复核，再进入信念挑战。",
+      ]),
+    ),
+    markdownSection(
+      "最近会谈时间线",
+      sessions.length > 0
+        ? sessions
+            .slice(0, 10)
+            .map(
+              (session, index) =>
+                [
+                  `### 第 ${sessions.length - index} 次会谈`,
+                  `- 时间：${formatFullDate(session.created_at)}`,
+                  `- 强度：${localizeValue(session.intensity) || "暂无"}`,
+                  `- 风险：${localizeRiskLevel(session.risk_level)}`,
+                  `- 情绪/认知：${firstLabel(session.emotion_labels)} · ${firstLabel(session.cognitive_patterns)}`,
+                  `- 摘要：${markdownText(session.source_text.replace(/\s+/g, " ").trim())}`,
+                ].join("\n"),
+            )
+            .join("\n\n")
+        : "未提供",
+    ),
+  ];
+
+  return `${sections.join("\n\n")}\n`;
+}
+
+function exportCaseOverviewMarkdown(client: ClientProfile, sessions: SessionSummary[]) {
+  const markdown = buildCaseOverviewMarkdown(client, sessions);
+  const blob = new Blob([markdown], { type: "text/markdown;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = buildCaseOverviewExportFileName(client);
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
 export function CaseOverviewPanel({ client, sessions, onSelectSession }: CaseOverviewPanelProps) {
   if (!client) {
     return (
@@ -146,6 +302,20 @@ export function CaseOverviewPanel({ client, sessions, onSelectSession }: CaseOve
   const worksheetCount = sessions.filter((session) => session.has_rebt_worksheet).length;
   const topEmotions = topItems(sessions.flatMap((session) => session.emotion_labels));
   const topCognitions = topItems(sessions.flatMap((session) => session.cognitive_patterns));
+  const topActivatingEvents = topItems(formulationValues(sessions, "activating_events"), 3);
+  const topBeliefs = topItems(formulationValues(sessions, "beliefs"), 3);
+  const topConsequences = topItems(formulationValues(sessions, "consequences"), 3);
+  const topDisputes = topItems(formulationValues(sessions, "disputes"), 3);
+  const topEffectiveBeliefs = topItems(formulationValues(sessions, "effective_beliefs"), 3);
+  const topInterventions = topItems(formulationValues(sessions, "interventions"), 4);
+  const hasRebtFormulation = [
+    topActivatingEvents,
+    topBeliefs,
+    topConsequences,
+    topDisputes,
+    topEffectiveBeliefs,
+    topInterventions,
+  ].some((items) => items.length > 0);
   const latestRisk = sessions[0]?.risk_level ?? "none";
   const latestIntensity = localizeValue(sessions[0]?.intensity) || "暂无";
   const latestSession = sessions[0] ?? null;
@@ -173,7 +343,16 @@ export function CaseOverviewPanel({ client, sessions, onSelectSession }: CaseOve
               {client.client_code} · 当前状态：{client.status}
             </div>
           </div>
-          <span className="pill accent">{sessions.length} 次会谈</span>
+          <div className="overview-hero-actions">
+            <button
+              className="btn ghost sm"
+              onClick={() => exportCaseOverviewMarkdown(client, sessions)}
+              type="button"
+            >
+              导出个案报告
+            </button>
+            <span className="pill accent">{sessions.length} 次会谈</span>
+          </div>
         </div>
       </div>
 
@@ -281,6 +460,42 @@ export function CaseOverviewPanel({ client, sessions, onSelectSession }: CaseOve
           </div>
         ) : (
           <p className="muted">暂无风险标记会谈。</p>
+        )}
+      </div>
+
+      <div className="rs-body">
+        <div className="rs-head">
+          <div className="rs-eyebrow">FORMULATION</div>
+          <div className="rs-title">阶段性 REBT formulation</div>
+        </div>
+        {hasRebtFormulation ? (
+          <div className="formulation-grid">
+            {[
+              { title: "A 触发事件", items: topActivatingEvents, tone: "muted" },
+              { title: "B 核心信念", items: topBeliefs, tone: "warn" },
+              { title: "C 情绪/行为后果", items: topConsequences, tone: "accent" },
+              { title: "D 辩论方向", items: topDisputes, tone: "good" },
+              { title: "E 替代信念", items: topEffectiveBeliefs, tone: "muted" },
+              { title: "已尝试干预", items: topInterventions, tone: "accent" },
+            ].map((group) => (
+              <article key={group.title} className="formulation-card">
+                <strong>{group.title}</strong>
+                <div className="tag-list">
+                  {group.items.length > 0 ? (
+                    group.items.map((item) => (
+                      <span key={`${group.title}-${item.label}`} className={`tag ${group.tone}`}>
+                        {item.label} · {item.count}
+                      </span>
+                    ))
+                  ) : (
+                    <span className="muted">暂无结构化材料</span>
+                  )}
+                </div>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <p className="muted">暂无可汇总的 REBT 工作纸或逐句解读材料。</p>
         )}
       </div>
 

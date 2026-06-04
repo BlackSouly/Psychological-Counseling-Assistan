@@ -28,12 +28,22 @@ class RiskAlert(BaseModel):
     summary: str = ""
 
 
+class FeedbackHistoryEntry(BaseModel):
+    saved_at: str
+    notes: str = ""
+    notes_color: ColorChoice = "black"
+    rating: int | None = None
+    disagreements: dict[str, str] = Field(default_factory=dict)
+    disagreement_colors: dict[str, ColorChoice] = Field(default_factory=dict)
+
+
 class AnnotationFeedback(BaseModel):
     notes: str = ""
     notes_color: ColorChoice = "black"
     rating: int | None = None
     disagreements: dict[str, str] = Field(default_factory=dict)
     disagreement_colors: dict[str, ColorChoice] = Field(default_factory=dict)
+    history: list[FeedbackHistoryEntry] = Field(default_factory=list)
 
 
 class RebtWorksheet(BaseModel):
@@ -67,6 +77,15 @@ class RebtPlan(BaseModel):
     line_interpretations: list[RebtLineInterpretation] = Field(default_factory=list)
     items: list[RebtPlanItem] = Field(default_factory=list)
     worksheet_draft: RebtWorksheet = Field(default_factory=RebtWorksheet)
+
+
+class SessionRebtFormulation(BaseModel):
+    activating_events: list[str] = Field(default_factory=list)
+    beliefs: list[str] = Field(default_factory=list)
+    consequences: list[str] = Field(default_factory=list)
+    disputes: list[str] = Field(default_factory=list)
+    effective_beliefs: list[str] = Field(default_factory=list)
+    interventions: list[str] = Field(default_factory=list)
 
 
 class SessionRecord(BaseModel):
@@ -133,6 +152,7 @@ class SessionSummary(BaseModel):
     cognitive_patterns: list[str] = Field(default_factory=list)
     risk_level: str = "none"
     has_rebt_worksheet: bool = False
+    rebt_formulation: SessionRebtFormulation = Field(default_factory=SessionRebtFormulation)
 
     @model_validator(mode="after")
     def ensure_updated_at(self) -> "SessionSummary":

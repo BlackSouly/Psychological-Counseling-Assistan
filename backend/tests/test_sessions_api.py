@@ -140,8 +140,27 @@ def test_feedback_patch_updates_notes_rating_colors_and_disagreements(tmp_path) 
     assert body["feedback"]["rating"] == 82
     assert body["feedback"]["notes_color"] == "red"
     assert body["feedback"]["disagreement_colors"]["cognitive_patterns"] == "blue"
+    assert len(body["feedback"]["history"]) == 1
+    assert body["feedback"]["history"][0]["rating"] == 82
+    assert body["feedback"]["history"][0]["notes_color"] == "red"
     assert body["analysis"] == session["analysis"]
     assert body["updated_at"] >= session["updated_at"]
+
+    second_response = client.patch(
+        f"/api/sessions/{session['session_id']}/feedback",
+        json={
+            "notes": "第二次批注。",
+            "notes_color": "black",
+            "rating": 91,
+            "disagreements": {},
+            "disagreement_colors": {},
+        },
+    )
+    second_body = second_response.json()
+    assert second_response.status_code == 200
+    assert second_body["feedback"]["rating"] == 91
+    assert len(second_body["feedback"]["history"]) == 2
+    assert [entry["rating"] for entry in second_body["feedback"]["history"]] == [82, 91]
 
 
 def test_worksheet_patch_persists_rebt_workflow_fields(tmp_path) -> None:

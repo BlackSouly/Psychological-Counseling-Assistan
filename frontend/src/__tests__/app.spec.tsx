@@ -108,6 +108,43 @@ describe("App", () => {
     expect(window.localStorage.getItem("workbench:active-client-code")).toBe("client_002");
   });
 
+  it("opens the settings dialog and shows backend model health", async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify([]), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          status: "ok",
+          ai_provider: {
+            base_url: "https://api.deepseek.com/anthropic",
+            model: "deepseek-v4-pro",
+            api_key_configured: true,
+            uses_default_services: true,
+          },
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
+    );
+
+    render(<App />);
+
+    await userEvent.click(screen.getByRole("button", { name: "设置" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("dialog", { name: "系统设置" })).toBeInTheDocument();
+    });
+    expect(screen.getByText("deepseek-v4-pro")).toBeInTheDocument();
+    expect(screen.getByText("已配置")).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith("/api/health", undefined);
+  });
+
   it("submits analysis and renders the current submission label", async () => {
     fetchMock.mockResolvedValueOnce(
       new Response(

@@ -1,5 +1,6 @@
 import type {
   AnnotationFeedback,
+  AppHealth,
   ClientProfile,
   CreateClientPayload,
   RebtWorksheet,
@@ -67,6 +68,14 @@ export async function fetchClients(): Promise<ClientProfile[]> {
     await throwApiError(response, "加载来访者列表失败。");
   }
   return (await response.json()) as ClientProfile[];
+}
+
+export async function fetchHealth(): Promise<AppHealth> {
+  const response = await request("/api/health");
+  if (!response.ok) {
+    await throwApiError(response, "读取系统状态失败。");
+  }
+  return (await response.json()) as AppHealth;
 }
 
 export async function createClient(payload: CreateClientPayload): Promise<ClientProfile> {

@@ -4,7 +4,7 @@ from pathlib import Path
 import shutil
 
 from app.models.client import ClientProfile
-from app.models.session import SessionRecord, SessionSummary
+from app.models.session import RebtWorksheet, SessionRebtFormulation, SessionRecord, SessionSummary
 
 
 class JsonStorage:
@@ -71,6 +71,45 @@ class JsonStorage:
             raise FileNotFoundError(f"Client not found: {client_code}")
         shutil.rmtree(client_dir)
 
+    def _non_empty_unique(self, values: list[str]) -> list[str]:
+        seen: set[str] = set()
+        result: list[str] = []
+        for value in values:
+            normalized = value.strip()
+            if not normalized or normalized in seen:
+                continue
+            seen.add(normalized)
+            result.append(normalized)
+        return result
+
+    def _worksheet_source(self, session: SessionRecord) -> RebtWorksheet:
+        if any(value.strip() for value in session.rebt_worksheet.model_dump().values()):
+            return session.rebt_worksheet
+        return session.rebt_plan.worksheet_draft
+
+    def _session_rebt_formulation(self, session: SessionRecord) -> SessionRebtFormulation:
+        worksheet = self._worksheet_source(session)
+        line_items = session.rebt_plan.line_interpretations
+
+        return SessionRebtFormulation(
+            activating_events=self._non_empty_unique(
+                [worksheet.activating_event, *[item.activating_event for item in line_items]]
+            ),
+            beliefs=self._non_empty_unique([worksheet.belief, *[item.belief for item in line_items]]),
+            consequences=self._non_empty_unique(
+                [worksheet.consequence, *[item.consequence for item in line_items]]
+            ),
+            disputes=self._non_empty_unique(
+                [
+                    worksheet.dispute,
+                    *[item.dispute_direction for item in line_items],
+                    *[item.intervention_question for item in line_items],
+                ]
+            ),
+            effective_beliefs=self._non_empty_unique([worksheet.effective_belief]),
+            interventions=self._non_empty_unique([item.title for item in session.rebt_plan.items]),
+        )
+
     def list_session_summaries(self, client_code: str) -> list[SessionSummary]:
         client_dir = self.root / client_code
         if not client_dir.exists():
@@ -94,6 +133,7 @@ class JsonStorage:
                     has_rebt_worksheet=any(
                         value.strip() for value in session.rebt_worksheet.model_dump().values()
                     ),
+                    rebt_formulation=self._session_rebt_formulation(session),
                 )
             )
         summaries.sort(key=lambda summary: (summary.updated_at, summary.session_id), reverse=True)

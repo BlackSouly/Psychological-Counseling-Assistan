@@ -415,6 +415,85 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   color: var(--surface);
 }
 
+.settings-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+  padding: 64px 22px 22px;
+  background: rgba(28, 29, 33, .18);
+}
+
+.settings-modal {
+  width: min(520px, calc(100vw - 32px));
+  display: grid;
+  gap: 14px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: 0 18px 48px rgba(28, 29, 33, .16);
+}
+
+.settings-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.settings-title {
+  margin-top: 4px;
+  color: var(--ink-1);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.settings-grid {
+  display: grid;
+  gap: 10px;
+}
+
+.settings-card {
+  display: grid;
+  gap: 5px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+
+.settings-card span {
+  color: var(--ink-3);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  opacity: .45;
+}
+
+.settings-card strong {
+  color: var(--ink-1);
+  font-size: 14px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.settings-card p {
+  color: var(--ink-2);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.settings-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
 .who {
   display: flex;
   align-items: center;
@@ -1485,6 +1564,14 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   gap: 12px;
 }
 
+.overview-hero-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .overview-name {
   color: var(--ink-1);
   font-size: 17px;
@@ -1707,6 +1794,29 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   font-size: 12px;
   font-weight: 400;
   line-height: 1.55;
+}
+
+.formulation-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.formulation-card {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+
+.formulation-card strong {
+  color: var(--ink-1);
+  font-size: 13px;
+  font-weight: 600;
 }
 
 .tag.warn {
@@ -2137,6 +2247,58 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   opacity: .75;
 }
 
+.feedback-history {
+  display: grid;
+  gap: 10px;
+  padding-top: 2px;
+}
+
+.feedback-history-title {
+  color: var(--ink-1);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.feedback-history-list {
+  display: grid;
+  gap: 8px;
+}
+
+.feedback-history-item {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+
+.feedback-history-item summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 10px;
+  color: var(--ink-2);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.feedback-history-item summary span:first-child {
+  color: var(--ink-1);
+}
+
+.feedback-history-body {
+  display: grid;
+  gap: 6px;
+  padding: 0 10px 10px;
+}
+
+.feedback-history-body p {
+  color: var(--ink-2);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.6;
+}
+
 .saved {
   font-size: 12px;
   color: var(--good);
@@ -2507,6 +2669,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
   .overview-columns,
   .overview-trend,
   .risk-track-summary,
+  .formulation-grid,
   .worksheet-grid {
     grid-template-columns: 1fr;
   }

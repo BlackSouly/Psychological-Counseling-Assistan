@@ -2,7 +2,14 @@ from pathlib import Path
 import json
 
 from app.models.client import ClientProfile
-from app.models.session import RebtWorksheet, SessionRecord, StructuredAnalysis
+from app.models.session import (
+    RebtLineInterpretation,
+    RebtPlan,
+    RebtPlanItem,
+    RebtWorksheet,
+    SessionRecord,
+    StructuredAnalysis,
+)
 from app.services.storage import JsonStorage
 
 
@@ -75,6 +82,53 @@ def test_list_session_summaries_includes_intensity_and_worksheet_state(tmp_path:
     summary = storage.list_session_summaries("client_001")[0]
     assert summary.intensity == "高"
     assert summary.has_rebt_worksheet is True
+
+
+def test_list_session_summaries_includes_structured_rebt_formulation(tmp_path: Path) -> None:
+    storage = JsonStorage(tmp_path)
+    client = ClientProfile(client_code="client_001", alias="Client 001")
+    storage.save_client(client)
+
+    session = SessionRecord(
+        session_id="session_a",
+        client_code="client_001",
+        created_at="2026-05-06T10-00-00Z",
+        updated_at="2026-05-06T10-00-00Z",
+        source_text="session text",
+        rebt_plan=RebtPlan(
+            line_interpretations=[
+                RebtLineInterpretation(
+                    source_quote="quote",
+                    activating_event="line activating event",
+                    belief="line belief",
+                    consequence="line consequence",
+                    dispute_direction="line dispute",
+                    intervention_question="line question",
+                )
+            ],
+            items=[RebtPlanItem(title="intervention title", detail="detail")],
+            worksheet_draft=RebtWorksheet(
+                activating_event="draft activating event",
+                belief="draft belief",
+                consequence="draft consequence",
+                dispute="draft dispute",
+                effective_belief="draft effective belief",
+            ),
+        ),
+    )
+    storage.save_session(session)
+
+    summary = storage.list_session_summaries("client_001")[0]
+
+    assert summary.rebt_formulation.activating_events == [
+        "draft activating event",
+        "line activating event",
+    ]
+    assert summary.rebt_formulation.beliefs == ["draft belief", "line belief"]
+    assert summary.rebt_formulation.consequences == ["draft consequence", "line consequence"]
+    assert summary.rebt_formulation.disputes == ["draft dispute", "line dispute", "line question"]
+    assert summary.rebt_formulation.effective_beliefs == ["draft effective belief"]
+    assert summary.rebt_formulation.interventions == ["intervention title"]
 
 
 def test_list_clients_returns_most_recently_updated_clients_first(tmp_path: Path) -> None:

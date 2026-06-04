@@ -1,4 +1,4 @@
-import { useState, type CSSProperties, type FormEvent } from "react";
+import { useEffect, useState, type CSSProperties, type FormEvent } from "react";
 
 import type { AnnotationFeedback, FeedbackColor } from "../types";
 
@@ -26,6 +26,14 @@ function getTextColorStyle(color: FeedbackColor): CSSProperties {
   };
 }
 
+function formatSavedAt(value: string): string {
+  const date = new Date(value.replace(/T(\d{2})-(\d{2})-(\d{2})Z$/, "T$1:$2:$3Z"));
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+  return `${String(date.getMonth() + 1).padStart(2, "0")}/${String(date.getDate()).padStart(2, "0")} ${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+}
+
 export function FeedbackPanel({ feedback, isSaving, onSave }: FeedbackPanelProps) {
   const [notes, setNotes] = useState(feedback.notes);
   const [notesColor, setNotesColor] = useState<FeedbackColor>(feedback.notes_color ?? "black");
@@ -36,6 +44,15 @@ export function FeedbackPanel({ feedback, isSaving, onSave }: FeedbackPanelProps
   const [cognitiveDisagreementColor, setCognitiveDisagreementColor] = useState<FeedbackColor>(
     feedback.disagreement_colors.cognitive_patterns ?? "black",
   );
+  const history = feedback.history ?? [];
+
+  useEffect(() => {
+    setNotes(feedback.notes);
+    setNotesColor(feedback.notes_color ?? "black");
+    setRating(feedback.rating !== null ? String(feedback.rating) : "");
+    setCognitiveDisagreement(feedback.disagreements.cognitive_patterns ?? "");
+    setCognitiveDisagreementColor(feedback.disagreement_colors.cognitive_patterns ?? "black");
+  }, [feedback]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -141,6 +158,42 @@ export function FeedbackPanel({ feedback, isSaving, onSave }: FeedbackPanelProps
       <button className="fb-save" disabled={isSaving} type="submit">
         {isSaving ? "保存中..." : "保存反馈"}
       </button>
+      <div className="feedback-history">
+        <div className="fb-eyebrow">HISTORY</div>
+        <div className="feedback-history-title">批注版本记录</div>
+        {history.length > 0 ? (
+          <div className="feedback-history-list">
+            {history
+              .slice()
+              .reverse()
+              .map((entry, index) => {
+                const version = history.length - index;
+                const disagreement = entry.disagreements.cognitive_patterns;
+                return (
+                  <details key={`${entry.saved_at}-${version}`} className="feedback-history-item">
+                    <summary>
+                      <span>第 {version} 次修改</span>
+                      <span>{formatSavedAt(entry.saved_at)}</span>
+                      <span>{entry.rating === null ? "未评分" : `${entry.rating} 分`}</span>
+                    </summary>
+                    <div className="feedback-history-body">
+                      <p style={getTextColorStyle(entry.notes_color)}>{entry.notes || "未填写批注说明。"}</p>
+                      {disagreement ? (
+                        <p style={getTextColorStyle(entry.disagreement_colors.cognitive_patterns ?? "black")}>
+                          认知模式分歧：{disagreement}
+                        </p>
+                      ) : (
+                        <p className="muted">未填写认知模式分歧。</p>
+                      )}
+                    </div>
+                  </details>
+                );
+              })}
+          </div>
+        ) : (
+          <p className="muted">暂无批注历史记录。</p>
+        )}
+      </div>
     </form>
   );
 }
